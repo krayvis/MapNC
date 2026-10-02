@@ -11,6 +11,7 @@
 </head>
 <body>
   <aside id="panel">
+    <div id="main-view">
     <div class="title-row">
       <h1>MapNC</h1>
       <button id="theme-btn" type="button" class="theme-btn">Theme: Auto</button>
@@ -93,7 +94,7 @@
     </details>
 
     <details class="pane" id="pane-clean" hidden>
-      <summary><span class="step">2</span> Clean up route</summary>
+      <summary><span class="step">2</span> Clean up &amp; edit route</summary>
       <div class="pane-body">
         <p class="hint">Experiment with a noisy tracker. The original track is the dashed grey line on the map; the cleaned one is red. Steps run in the order below, each is optional, and nothing is saved back to your file.</p>
         <label class="inline"><input type="checkbox" id="clean-spikes"> Remove GPS spikes</label>
@@ -123,6 +124,11 @@
           <dt>Largest shift</dt><dd id="clean-shift">–</dd>
           <dt>Spikes removed</dt><dd id="clean-spikes-n">–</dd>
         </dl>
+        <h3>Edit points by hand</h3>
+        <p class="hint">Fix what the automatic clean-up cannot, checking the route against satellite imagery in a dedicated editing view.</p>
+        <button id="edit-toggle" type="button">Edit points on the map…</button>
+        <p id="edit-summary" class="hint" hidden></p>
+        <button id="edit-discard" type="button" hidden>Discard manual edits</button>
       </div>
     </details>
 
@@ -279,6 +285,51 @@
         <button id="reload-btn" type="button">Reload elevation data</button>
       </div>
     </details>
+    </div>
+
+    <!-- Editing view: replaces the main sidebar while editing route points on the map. -->
+    <div id="edit-view" hidden>
+      <div class="edit-head">
+        <h2 class="edit-title">Editing route</h2>
+        <button id="edit-done" type="button" class="primary">Done</button>
+      </div>
+      <p class="hint">Changes reach the heightmap and the exports as soon as you let go of a point.</p>
+
+      <h3>Map</h3>
+      <div class="segmented" role="group" aria-label="Map view">
+        <button type="button" data-base="Street (OpenStreetMap)">Street</button>
+        <button type="button" data-base="Satellite (Esri World Imagery)">Satellite</button>
+        <button type="button" data-base="Topographic (OpenTopoMap)">Topo</button>
+      </div>
+      <label class="inline"><input type="checkbox" id="edit-show-original" checked> Show the original track (dashed grey)</label>
+      <label class="inline"><input type="checkbox" id="edit-thin"> Thin route line</label>
+
+      <h3>Tools</h3>
+      <div class="row">
+        <button id="edit-undo" type="button" disabled>Undo</button>
+        <button id="edit-redo" type="button" disabled>Redo</button>
+        <button id="edit-delete" type="button" disabled>Delete</button>
+      </div>
+      <p id="edit-status" class="hint" role="status"></p>
+      <button id="edit-discard2" type="button" hidden>Discard all manual edits</button>
+      <dl class="info">
+        <dt>Points</dt><dd id="edit-points">–</dd>
+        <dt>Length</dt><dd id="edit-length">–</dd>
+        <dt>Edits</dt><dd id="edit-count">–</dd>
+      </dl>
+
+      <h3>How to edit</h3>
+      <ul class="help">
+        <li><b>Move</b> a point: drag it.</li>
+        <li><b>Add</b> a point: drag the line itself.</li>
+        <li><b>Select</b> a point: click it. <b>Shift+click</b> another to select the stretch between.</li>
+        <li><b>Delete</b> the selection: Delete key or the button. Right-click also deletes a point.</li>
+        <li><b>Undo / redo:</b> Ctrl/⌘+Z and Ctrl/⌘+Shift+Z.</li>
+        <li><b>Esc</b> clears the selection; pressed again it leaves editing.</li>
+        <li>Pan and zoom as usual. Points show once fewer than 1500 are in view, so zoom in on the part you are fixing.</li>
+        <li>Automatic clean-up settings lock once you have manual edits; Discard unlocks them.</li>
+      </ul>
+    </div>
   </aside>
   <div id="map" aria-label="Map"></div>
 

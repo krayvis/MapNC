@@ -283,6 +283,42 @@
     };
   }
 
+
+  // ---- manual editing: pure operations on segment arrays ------------------------------------------
+  // `segments` is [[{lat, lon}, ...], ...]. These return new arrays (the one touched segment is replaced, others are
+  // shared), so a caller can keep earlier versions for undo. Snapshots are compact typed arrays.
+
+  function copySegments(segs) { return segs.map((s) => s.map((p) => ({ lat: p.lat, lon: p.lon }))); }
+
+  function snapshotSegments(segs) {
+    return segs.map((s) => { const a = new Float64Array(s.length * 2); s.forEach((p, i) => { a[2 * i] = p.lat; a[2 * i + 1] = p.lon; }); return a; });
+  }
+
+  function restoreSegments(snap) {
+    return snap.map((a) => { const s = []; for (let i = 0; i < a.length; i += 2) s.push({ lat: a[i], lon: a[i + 1] }); return s; });
+  }
+
+  /**
+   * Remove points a..b (inclusive) from segment `seg`. If fewer than 2 would remain, the whole segment goes, unless it is
+   * the only one (a route needs at least two points): then { ok: false }.
+   */
+  function deletePoints(segs, seg, a, b) {
+    const s = segs[seg];
+    if (!s) return { ok: false, segments: segs, reason: 'No such segment.' };
+    const lo = Math.max(0, Math.min(a, b)), hi = Math.min(s.length - 1, Math.max(a, b));
+    const rest = s.filter((_, i) => i < lo || i > hi);
+    if (rest.length >= 2) return { ok: true, segments: segs.map((x, i) => (i === seg ? rest : x)), removed: hi - lo + 1 };
+    if (segs.length === 1) return { ok: false, segments: segs, reason: 'A route needs at least two points.' };
+    return { ok: true, segments: segs.filter((_, i) => i !== seg), removed: s.length, segmentRemoved: true };
+  }
+
+  /** Insert a point after index `after` of segment `seg`; returns the new segments and the new point's index. */
+  function insertPoint(segs, seg, after, lat, lon) {
+    const s = segs[seg].slice();
+    s.splice(after + 1, 0, { lat, lon });
+    return { segments: segs.map((x, i) => (i === seg ? s : x)), index: after + 1 };
+  }
+
   /** Track points in grid pixel coordinates (see frame note at the top). */
   function toPixels(track, bounds, W, H) {
     const sx = W / (bounds.east - bounds.west), sy = H / (bounds.north - bounds.south);
@@ -377,7 +413,7 @@
     };
   }
 
-  const api = { cleanTrack, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
+  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCTrack = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -159,3 +159,25 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
 .pane-body { padding: 4px 12px 12px; }
 .pane-body h3:first-child { margin-top: 8px; }
 .step { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; }
+
+/* ---- Route point editing ------------------------------------------------------------------------ */
+#map.editing-hit-vertex { cursor: move; }
+#map.editing-hit-line { cursor: copy; }
+.leaflet-edit-pane { z-index: 450; pointer-events: none; }
+#pane-clean .row button { flex: 1; }
+#pane-clean input:disabled, #pane-clean button:disabled { opacity: .5; }
+
+/* ---- Editing view ---------------------------------------------------------------------------- */
+#main-view[hidden], #edit-view[hidden] { display: none; }
+.edit-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 14px; position: sticky; top: 0; z-index: 5; background: var(--bg); padding-bottom: 8px; border-bottom: 1px solid var(--line); margin: 0 -16px 8px; padding-left: 16px; padding-right: 16px; }
+.edit-title { margin: 0; font-size: 18px; text-transform: none; letter-spacing: 0; color: var(--fg); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; min-width: 84px; }
+.segmented { display: flex; margin: 6px 0 10px; }
+.segmented button { flex: 1; border-radius: 0; margin-left: -1px; }
+.segmented button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.segmented button:last-child { border-radius: 0 6px 6px 0; }
+.segmented button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.help { margin: 4px 0 0; padding-left: 18px; color: var(--muted); }
+.help li { margin: 4px 0; }
+.help b { color: var(--fg); }
+#edit-view .row button { flex: 1; }

@@ -40,10 +40,11 @@
     }),
   };
   let baseName = 'Street (OpenStreetMap)';
+  const SATELLITE = 'Satellite (Esri World Imagery)';
   try { const saved = localStorage.getItem('mapnc-basemap'); if (saved && baseLayers[saved]) baseName = saved; } catch (e) { /* storage unavailable: default map */ }
   baseLayers[baseName].addTo(map);
   L.control.layers(baseLayers, null, { collapsed: true, position: 'topright' }).addTo(map);
-  map.on('baselayerchange', (e) => { try { localStorage.setItem('mapnc-basemap', e.name); } catch (err) { /* ignore */ } });
+  map.on('baselayerchange', (e) => { baseName = e.name; try { localStorage.setItem('mapnc-basemap', e.name); } catch (err) { /* ignore */ } });
   L.control.scale({ imperial: false }).addTo(map);
   window.MapNC = { map, get elevation() { return elevation; }, get grey() { return grey; }, region: () => bounds }; // handle for debugging and automated tests
 
@@ -377,6 +378,9 @@
   let rawTrack = null;     // the track as loaded: { name, segments }
   let track = null;        // the track in use: rawTrack after clean-up (the same object when nothing is enabled)
   let rawLayer = null;     // the original, shown dashed under the cleaned line when clean-up changes it
+  let cleanedTrack = null; // rawTrack after the automatic clean-up
+  let editTrack = null;    // cleanedTrack plus manual edits; exists only while there are edits
+  let lastCleanStats = null;
   let trackVersion = 0;    // bumps whenever `track` changes, so cached route weights are rebuilt
   let trackLayer = null;   // Leaflet polyline group
   let widthTouched = false; // true once the user edits the line width, so a re-fit won't overwrite it
@@ -384,6 +388,16 @@
   function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
 
   const ll = (t) => t.segments.map((seg) => seg.map((p) => [p.lat, p.lon]));
+
+  // The original track shows dashed grey under the route whenever clean-up or editing has changed it (and the user
+  // has not hidden it). One place decides, so clean-up and editing cannot disagree.
+  let showOriginal = true, thinLine = false;
+  function syncRawLayer() {
+    const want = showOriginal && rawTrack && trackLayer && ((lastCleanStats && lastCleanStats.changed) || editTrack);
+    if (want && !rawLayer) rawLayer = L.polyline(ll(rawTrack), { color: '#7b8794', weight: 2, dashArray: '4 5', opacity: .9, interactive: false }).addTo(map);
+    else if (!want && rawLayer) { rawLayer.remove(); rawLayer = null; }
+    if (trackLayer) { trackLayer.setStyle({ weight: thinLine ? 1.5 : 3 }); trackLayer.bringToFront(); }
+  }
 
   function trackSummary() {
     const pts = track.segments.reduce((n, s) => n + s.length, 0);
@@ -417,18 +431,17 @@
     if (!rawTrack) return;
     let result;
     try { result = Track.cleanTrack(rawTrack, cleanOpts()); } catch (err) { trackError('Clean-up failed: ' + err.message); return; }
-    track = result.track;
+    cleanedTrack = result.track;
+    track = editTrack || cleanedTrack;
     trackVersion++;
-    const st = result.stats;
+    const st = lastCleanStats = result.stats;
     trackLayer.setLatLngs(ll(track));
-    if (st.changed) {
-      if (!rawLayer) rawLayer = L.polyline(ll(rawTrack), { color: '#7b8794', weight: 2, dashArray: '4 5', opacity: .9, interactive: false }).addTo(map);
-      trackLayer.bringToFront();
-    } else if (rawLayer) { rawLayer.remove(); rawLayer = null; }
+    syncRawLayer();
     $('clean-points').textContent = st.changed ? st.pointsBefore + ' → ' + st.pointsAfter : st.pointsBefore + ' (unchanged)';
     $('clean-length').textContent = st.changed ? st.lengthBeforeKm.toFixed(2) + ' → ' + st.lengthAfterKm.toFixed(2) + ' km' : st.lengthBeforeKm.toFixed(2) + ' km';
     $('clean-shift').textContent = st.changed ? (st.maxShiftM < 10 ? st.maxShiftM.toFixed(1) : st.maxShiftM.toFixed(0)) + ' m from the original' : '–';
     $('clean-spikes-n').textContent = $('clean-spikes').checked ? String(st.spikes) : '–';
+    refreshEditUi();
     $('track-info').textContent = trackSummary();
     if (elevation) recompute();      // the route in the heightmap follows the cleaned line
   }
@@ -465,6 +478,7 @@
       trackError(err.message);
       return;
     }
+    resetEditState();
     track = rawTrack;
     setCleanInputs(0, 0, 0, 0);
     widthTouched = false;
@@ -493,8 +507,10 @@
 
   $('track-fit').addEventListener('click', () => track && fitToTrack());
   $('track-clear').addEventListener('click', () => {
+    resetEditState();
     track = null;
     rawTrack = null;
+    cleanedTrack = null;
     trackVersion++;
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
@@ -810,6 +826,290 @@
       $('export-btn').disabled = false;
     }
   });
+
+  // ---- manual point editing ----------------------------------------------------------------
+  // Pipeline: original -> automatic clean-up -> manual edits. While manual edits exist the clean-up controls are locked
+  // (changing them would silently throw the hand work away); "Discard manual edits" unlocks them. Edits happen on the
+  // map: drag a point to move it, drag the line to add a point, click to select (Shift+click for a stretch), Delete
+  // or right-click to remove. Pointer events with pointer capture are used, so mouse and touch behave alike.
+
+  const edit = { on: false, undo: [], redo: [], sel: null, drag: null };
+  const MAX_HANDLES = 1500;                      // more handles than this in view and the map gets sluggish
+  const UNDO_LIMIT = 100;
+  const editPane = map.createPane('edit');
+  editPane.classList.add('leaflet-edit-pane');
+  const editRenderer = L.canvas({ pane: 'edit', padding: 0.3 });
+  const handleLayer = L.layerGroup().addTo(map);
+  let handleMarkers = new Map();                 // "seg:idx" -> circleMarker, so a drag moves one marker, not all
+  let lastView = { list: [], total: 0 };         // vertices in view, in container pixels
+
+  const hkey = (seg, idx) => seg + ':' + idx;
+  const isSelected = (seg, idx) => !!edit.sel && edit.sel.seg === seg && idx >= edit.sel.a && idx <= edit.sel.b;
+
+  function visibleVertices() {
+    const out = [], size = map.getSize(), pad = 24;
+    let total = 0;
+    if (track) track.segments.forEach((seg, si) => seg.forEach((p, pi) => {
+      const c = map.latLngToContainerPoint([p.lat, p.lon]);
+      if (c.x < -pad || c.x > size.x + pad || c.y < -pad || c.y > size.y + pad) return;
+      total++;
+      if (total <= MAX_HANDLES) out.push({ seg: si, idx: pi, x: c.x, y: c.y });
+    }));
+    return { list: total > MAX_HANDLES ? [] : out, total };      // too many in view: no handles at all
+  }
+
+  function drawHandles() {
+    handleLayer.clearLayers();
+    handleMarkers = new Map();
+    lastView = edit.on && track ? visibleVertices() : { list: [], total: 0 };
+    if (edit.on && lastView.total <= MAX_HANDLES) {
+      for (const v of lastView.list) {
+        const p = track.segments[v.seg][v.idx], sel = isSelected(v.seg, v.idx);
+        const m = L.circleMarker([p.lat, p.lon], {
+          renderer: editRenderer, pane: 'edit', interactive: false, radius: sel ? 8 : 5, weight: 2,
+          color: sel ? '#2563eb' : '#e11d48', fillColor: sel ? '#2563eb' : '#ffffff', fillOpacity: 1,
+        }).addTo(handleLayer);
+        handleMarkers.set(hkey(v.seg, v.idx), m);
+      }
+    }
+    refreshEditUi();
+  }
+  map.on('moveend zoomend', () => { if (edit.on) drawHandles(); });
+
+  const segDist = (p, a, b) => {                  // distance from p to segment a-b, and the nearest point on it
+    const vx = b.x - a.x, vy = b.y - a.y, l2 = vx * vx + vy * vy;
+    const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2)) : 0;
+    const q = { x: a.x + t * vx, y: a.y + t * vy };
+    return { d: Math.hypot(p.x - q.x, p.y - q.y), q };
+  };
+
+  /** What is under container point `cp`: a vertex, a line (to insert into), or nothing. */
+  function hitTest(cp, touch) {
+    if (!edit.on || !track || lastView.total > MAX_HANDLES) return null;
+    const R = touch ? 20 : 11;
+    let best = null, bd = R * R;
+    for (const v of lastView.list) { const d = (v.x - cp.x) ** 2 + (v.y - cp.y) ** 2; if (d <= bd) { bd = d; best = v; } }
+    if (best) return { type: 'vertex', seg: best.seg, idx: best.idx, x: best.x, y: best.y };
+    const L2 = touch ? 16 : 9;
+    let line = null, ld = L2;
+    track.segments.forEach((seg, si) => {
+      let prev = null;
+      seg.forEach((p, pi) => {
+        const c = map.latLngToContainerPoint([p.lat, p.lon]);
+        if (prev && !(Math.max(prev.x, c.x) < cp.x - L2 || Math.min(prev.x, c.x) > cp.x + L2 || Math.max(prev.y, c.y) < cp.y - L2 || Math.min(prev.y, c.y) > cp.y + L2)) {
+          const r = segDist(cp, prev, c);
+          if (r.d <= ld) { ld = r.d; line = { type: 'line', seg: si, after: pi - 1, q: r.q }; }
+        }
+        prev = c;
+      });
+    });
+    return line;
+  }
+
+  const snapshotNow = () => Track.snapshotSegments(track.segments);
+  function ensureEditTrack() {
+    if (!editTrack) editTrack = { name: track.name, segments: Track.copySegments(track.segments) };
+    track = editTrack;
+  }
+  function pushUndo(snap) {
+    edit.undo.push(snap);
+    if (edit.undo.length > UNDO_LIMIT) edit.undo.shift();
+    edit.redo = [];
+  }
+
+  /** After the route changed for good (drop, delete, undo, redo): redraw everything that depends on it. */
+  function commitTrackChange() {
+    trackVersion++;
+    trackLayer.setLatLngs(ll(track));
+    syncRawLayer();
+    $('track-info').textContent = trackSummary();
+    drawHandles();
+    if (elevation) recompute();                    // the route in the heightmap follows the edit
+  }
+
+  function onEditDown(e) {
+    if (!edit.on || drawing || edit.drag || e.button > 0) return;
+    if (e.target.closest && e.target.closest('.leaflet-control, .leaflet-marker-icon')) return;
+    const cp = map.mouseEventToContainerPoint(e);
+    const hit = hitTest(cp, e.pointerType === 'touch');
+    if (!hit) return;                              // empty map: let it pan
+    map.dragging.disable();                        // this gesture belongs to the editor, not the map
+    try { mapEl.setPointerCapture(e.pointerId); } catch (err) { /* pointer not capturable: the gesture still works while it stays over the map */ }
+    edit.drag = { id: e.pointerId, hit, start: cp, moved: false, shift: e.shiftKey, before: null, target: null,
+      offset: hit.type === 'vertex' ? { x: hit.x - cp.x, y: hit.y - cp.y } : { x: 0, y: 0 } };
+    e.preventDefault();
+  }
+
+  function onEditMove(e) {
+    const d = edit.drag;
+    if (!d || e.pointerId !== d.id) return;
+    const cp = map.mouseEventToContainerPoint(e);
+    if (!d.moved) {
+      if (Math.hypot(cp.x - d.start.x, cp.y - d.start.y) < 4) return;   // still a click
+      d.moved = true;
+      d.before = snapshotNow();                                          // the state to return to on Undo
+      ensureEditTrack();
+      if (d.hit.type === 'line') {                                       // dragging the line adds a point where it was grabbed
+        const at = map.containerPointToLatLng([d.hit.q.x, d.hit.q.y]);
+        const r = Track.insertPoint(track.segments, d.hit.seg, d.hit.after, at.lat, at.lng);
+        track.segments = r.segments;
+        d.target = { seg: d.hit.seg, idx: r.index };
+        drawHandles();
+      } else d.target = { seg: d.hit.seg, idx: d.hit.idx };
+    }
+    const ll2 = map.containerPointToLatLng([cp.x + d.offset.x, cp.y + d.offset.y]);
+    track.segments[d.target.seg][d.target.idx] = { lat: ll2.lat, lon: ll2.lng };
+    trackLayer.setLatLngs(ll(track));
+    const m = handleMarkers.get(hkey(d.target.seg, d.target.idx));
+    if (m) m.setLatLng(ll2);
+  }
+
+  function onEditUp(e) {
+    const d = edit.drag;
+    if (!d || e.pointerId !== d.id) return;
+    edit.drag = null;
+    map.dragging.enable();
+    try { mapEl.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ }
+    if (d.moved) {
+      pushUndo(d.before);
+      commitTrackChange();
+    } else if (d.hit.type === 'vertex') {
+      const same = edit.sel && edit.sel.seg === d.hit.seg;
+      edit.sel = d.shift && same
+        ? { seg: d.hit.seg, a: Math.min(edit.sel.a, d.hit.idx), b: Math.max(edit.sel.b, d.hit.idx) }
+        : { seg: d.hit.seg, a: d.hit.idx, b: d.hit.idx };
+      drawHandles();
+    } else { edit.sel = null; drawHandles(); }
+  }
+  mapEl.addEventListener('pointerdown', onEditDown);
+  mapEl.addEventListener('pointermove', onEditMove);
+  mapEl.addEventListener('pointerup', onEditUp);
+  mapEl.addEventListener('pointercancel', onEditUp);
+
+  // Cursor hint while hovering (mouse only; touch has no hover, so the help text carries the explanation).
+  let hoverQueued = false;
+  mapEl.addEventListener('pointermove', (e) => {
+    if (!edit.on || edit.drag || e.pointerType === 'touch' || hoverQueued) return;
+    hoverQueued = true;
+    requestAnimationFrame(() => {
+      hoverQueued = false;
+      const hit = hitTest(map.mouseEventToContainerPoint(e), false);
+      mapEl.classList.toggle('editing-hit-vertex', !!hit && hit.type === 'vertex');
+      mapEl.classList.toggle('editing-hit-line', !!hit && hit.type === 'line');
+    });
+  });
+
+  function deleteSelected() {
+    if (!edit.sel || !track) return;
+    const before = snapshotNow();
+    const copy = { name: track.name, segments: Track.copySegments(track.segments) };
+    const r = Track.deletePoints(copy.segments, edit.sel.seg, edit.sel.a, edit.sel.b);
+    if (!r.ok) { $('edit-status').textContent = r.reason; return; }
+    editTrack = { name: copy.name, segments: r.segments };
+    track = editTrack;
+    pushUndo(before);
+    edit.sel = null;
+    commitTrackChange();
+  }
+  mapEl.addEventListener('contextmenu', (e) => {
+    if (!edit.on) return;
+    const hit = hitTest(map.mouseEventToContainerPoint(e), false);
+    if (!hit || hit.type !== 'vertex') return;
+    e.preventDefault();
+    edit.sel = { seg: hit.seg, a: hit.idx, b: hit.idx };
+    deleteSelected();
+  });
+
+  function undo() {
+    if (!edit.undo.length) return;
+    edit.redo.push(snapshotNow());
+    editTrack = { name: track.name, segments: Track.restoreSegments(edit.undo.pop()) };
+    if (!edit.undo.length) { editTrack = null; track = cleanedTrack; } else track = editTrack;
+    edit.sel = null;
+    commitTrackChange();
+  }
+  function redo() {
+    if (!edit.redo.length) return;
+    edit.undo.push(snapshotNow());
+    editTrack = { name: track.name, segments: Track.restoreSegments(edit.redo.pop()) };
+    track = editTrack;
+    edit.sel = null;
+    commitTrackChange();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (!edit.on || /^(INPUT|SELECT|TEXTAREA)$/.test((e.target && e.target.tagName) || '')) return;
+    const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+    if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSelected(); }
+    else if (mod && k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); }
+    else if (mod && k === 'y') { e.preventDefault(); redo(); }
+    else if (e.key === 'Escape') { if (edit.sel) { edit.sel = null; drawHandles(); } else setEditing(false); }
+  });
+
+  function setEditing(on) {
+    edit.on = on && !!track;
+    if (edit.on) setDrawing(false);
+    edit.drag = null;
+    $('main-view').hidden = edit.on;               // the sidebar becomes the editor while editing
+    $('edit-view').hidden = !edit.on;
+    $('panel').scrollTop = 0;
+    mapEl.classList.remove('editing-hit-vertex', 'editing-hit-line');
+    drawHandles();
+  }
+
+  function resetEditState() {
+    editTrack = null;
+    edit.undo = []; edit.redo = []; edit.sel = null; edit.drag = null;
+    setEditing(false);
+  }
+
+  /** Keep every control that depends on the editing state in step with it. */
+  function refreshEditUi() {
+    const locked = !!editTrack, n = edit.undo.length;
+    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-smooth', 'clean-simplify', 'clean-suggest', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
+    // main sidebar: a short summary and the way to unlock
+    $('edit-summary').hidden = !locked;
+    $('edit-summary').textContent = locked ? 'Manual edits: ' + n + ' change' + (n === 1 ? '' : 's') + '. The settings above are locked until you discard them.' : '';
+    $('edit-discard').hidden = !locked;
+    // editing view
+    $('edit-undo').disabled = !n;
+    $('edit-redo').disabled = !edit.redo.length;
+    $('edit-delete').disabled = !edit.sel;
+    $('edit-discard2').hidden = !locked;
+    document.querySelectorAll('#edit-view [data-base]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.base === baseName)));
+    if (track) {
+      $('edit-points').textContent = track.segments.reduce((c, sg) => c + sg.length, 0) + (track.segments.length > 1 ? ' in ' + track.segments.length + ' segments' : '');
+      $('edit-length').textContent = Track.trackLengthKm(track).toFixed(2) + ' km';
+    }
+    $('edit-count').textContent = n ? n + ' change' + (n === 1 ? '' : 's') : 'none yet';
+    let msg = '';
+    if (edit.on && lastView.total > MAX_HANDLES) msg = lastView.total + ' points are in view. Zoom in (to under ' + MAX_HANDLES + ') to see and edit them.';
+    else if (edit.sel) msg = edit.sel.a === edit.sel.b ? 'Point ' + (edit.sel.a + 1) + ' selected.' : (edit.sel.b - edit.sel.a + 1) + ' points selected (' + (edit.sel.a + 1) + '–' + (edit.sel.b + 1) + ').';
+    else if (edit.on) msg = lastView.total + ' points in view.';
+    $('edit-status').textContent = msg;
+  }
+
+  $('edit-toggle').addEventListener('click', () => setEditing(true));
+  $('edit-done').addEventListener('click', () => setEditing(false));
+  $('edit-undo').addEventListener('click', undo);
+  $('edit-redo').addEventListener('click', redo);
+  $('edit-delete').addEventListener('click', deleteSelected);
+  const discardEdits = () => { const was = edit.on; resetEditState(); applyClean(); if (was) setEditing(true); };
+  $('edit-discard').addEventListener('click', discardEdits);
+  $('edit-discard2').addEventListener('click', discardEdits);
+
+  function showBase(name) {
+    if (!baseLayers[name] || name === baseName) return;
+    map.removeLayer(baseLayers[baseName]);
+    baseLayers[name].addTo(map);                    // the layer switcher and the remembered choice follow via baselayerchange
+  }
+  document.querySelectorAll('#edit-view [data-base]').forEach((b) => b.addEventListener('click', () => showBase(b.dataset.base)));
+  $('edit-show-original').addEventListener('change', () => { showOriginal = $('edit-show-original').checked; syncRawLayer(); });
+  $('edit-thin').addEventListener('change', () => { thinLine = $('edit-thin').checked; syncRawLayer(); });
+  map.on('baselayerchange', refreshEditUi);
+  window.MapNC.editView = () => ({ list: lastView.list, total: lastView.total, on: edit.on, sel: edit.sel, undo: edit.undo.length, redo: edit.redo.length });
+  window.MapNC.track = () => track;
+  window.MapNC.hit = (x, y, touch) => { const h = hitTest({ x, y }, !!touch); return h && { type: h.type, seg: h.seg, idx: h.idx }; };
 
   // ---- route exports: PNG layer (streamed) and vector (SVG / DXF) ----------------------------
   // These need only the region and the route. They are framed exactly like the heightmap: same bounds, and a pixel
