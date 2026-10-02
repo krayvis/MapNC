@@ -415,7 +415,7 @@
   /** The route as drawn and exported: the points themselves, or a spline fitted through them when that is switched on. */
   function shown() {
     if (!track || !$('spline-on').checked) return track;
-    try { return Track.splineTrack(track, parseFloat($('spline-tol').value) || 0.5); } catch (e) { return track; }
+    try { return Track.splineTrack(track, parseFloat($('spline-tol').value) || 1); } catch (e) { return track; }
   }
 
   function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
