@@ -87,7 +87,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.evaluate(() => { document.getElementById('panel').scrollTop = 0; });
   await pg.click('summary:has-text("Heightmap")'); check('pane collapses', !(await pg.locator('#pane-heightmap').evaluate(e => e.open)));
   await pg.reload(); await pg.waitForTimeout(500);
-  check('collapsed pane remembered after reload', !(await pg.locator('#pane-heightmap').evaluate(e => e.open)) && (await pg.locator('#pane-region').evaluate(e => e.open)));
+  check('step 1 is open again after reload', await pg.locator('#pane-region').evaluate(e => e.open));
   await pg.screenshot({ path: S + '/panes.png' });
   console.log('page errors:', errs);
   await b.close(); process.exit(0);

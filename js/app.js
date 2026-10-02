@@ -1421,9 +1421,7 @@
   // Collapsible panes behave as an accordion: opening one closes the others. What is open is remembered.
   const panes = Array.from(document.querySelectorAll('details.pane'));
   let restoring = true;
-  panes.forEach((d) => {
-    try { const v = localStorage.getItem('mapnc-pane-' + d.id); if (v !== null) d.open = v === '1'; } catch (e) { /* default state */ }
-  });
+  // Always start on step 1 (its markup is open), so a first-time visitor is walked in from the top.
   const firstOpen = panes.find((d) => d.open);
   if (!window.__MAPNC_FREE_PANES) panes.forEach((d) => { if (d !== firstOpen) d.open = false; });
   setTimeout(() => { restoring = false; }, 0);
@@ -1431,9 +1429,12 @@
     d.addEventListener('toggle', () => {
       if (restoring) return;
       if (d.open && !window.__MAPNC_FREE_PANES) panes.forEach((o) => { if (o !== d && o.open) o.open = false; });   // the flag is for tests that need several panes readable at once
-      try { panes.forEach((o) => localStorage.setItem('mapnc-pane-' + o.id, o.open ? '1' : '0')); } catch (e) { /* ignore */ }
+      syncRegionLock();
     });
   });
+  // The rectangle is only editable while step 1 is open; leaving it locks the region in place.
+  function syncRegionLock() { mapEl.classList.toggle('region-locked', !$('pane-region').open); }
+  syncRegionLock();
 
   // Start with the sample route loaded so the whole flow can be tried straight away. "Clear route" removes it;
   // add ?sample=off to the address to start empty.

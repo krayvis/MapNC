@@ -64,5 +64,11 @@ const srv = http.createServer((q, r) => { const p = path.join(root, q.url.split(
   await pg.reload(); await pg.waitForTimeout(500);
   check('base map choice remembered after reload', (await pg.evaluate(() => !!document.querySelector('.leaflet-layer.tiles-photo'))));
   console.log('page errors:', errs);
+  const lockHidden = () => pg.evaluate(() => { const h = document.querySelector('.corner-handle'); return !!h && getComputedStyle(h).display === 'none'; });
+  check('region handles visible while step 1 is open', !(await lockHidden()));
+  await pg.evaluate(() => { document.getElementById('pane-region').open = false; }); await pg.waitForTimeout(100);
+  check('region handles hidden once step 1 is closed', await lockHidden());
+  await pg.evaluate(() => { document.getElementById('pane-region').open = true; }); await pg.waitForTimeout(100);
+  check('region handles back when step 1 reopens', !(await lockHidden()));
   await b.close(); srv.close();
 });

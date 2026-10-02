@@ -218,3 +218,4 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 
 .filename { margin-top: 4px; color: var(--muted, inherit); overflow-wrap: anywhere; }
 .route-actions > button { flex: 1; }
+.region-locked .corner-handle, .region-locked .move-handle { display: none; }
