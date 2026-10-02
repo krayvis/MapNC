@@ -33,10 +33,12 @@ body {
 #map { flex: 1; min-width: 0; }
 
 h1 { margin: 0 0 4px; font-size: 22px; }
+h3 { margin: 14px 0 6px; font-size: 14px; }
 h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .lede, .hint { color: var(--muted); margin: 4px 0 8px; }
 progress { width: 100%; margin: 8px 0 0; }
 #preview { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 8px; background: #000; }
+input[type="file"] { display: block; width: 100%; margin-top: 4px; font: inherit; }
 fieldset.field { border: 0; padding: 0; margin: 8px 0; }
 fieldset.field legend { padding: 0; color: var(--fg); }
 label.inline { display: block; margin: 4px 0; }

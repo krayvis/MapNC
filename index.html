@@ -28,6 +28,23 @@
     </section>
 
     <section>
+      <h2>Route (optional)</h2>
+      <label class="field">GPX or TCX file
+        <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml">
+      </label>
+      <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it.</p>
+      <div class="row">
+        <label class="field">Margin (% each side)
+          <input id="track-margin" type="number" min="0" max="200" step="1" value="15">
+        </label>
+        <button id="track-fit" type="button" hidden>Re-fit region</button>
+        <button id="track-clear" type="button" hidden>Remove</button>
+      </div>
+      <p id="track-info" class="hint" hidden></p>
+      <p id="track-error" class="warning" hidden></p>
+    </section>
+
+    <section>
       <h2>2. Elevation source</h2>
       <label class="field">Source
         <select id="source-select">
@@ -83,9 +100,37 @@
         <dt>Per grey level</dt><dd id="hm-level">–</dd>
         <dt>Clipped</dt><dd id="hm-clip">–</dd>
       </dl>
+      <div id="route-controls" hidden>
+        <h3>Route in heightmap</h3>
+        <label class="inline"><input type="checkbox" id="route-burn" checked> Burn route into heightmap</label>
+        <label class="field">Line width (m on the ground)
+          <input id="route-width" type="number" min="1" step="any">
+        </label>
+        <label class="field">Raise / lower (% of grey range)
+          <input id="route-amount" type="number" min="-100" max="100" step="0.5" value="-3">
+        </label>
+        <p class="hint">Negative cuts a groove, positive raises a ridge. Applied to terrain height, before Invert.</p>
+        <label class="field">Profile
+          <select id="route-shape">
+            <option value="rounded" selected>Rounded (half-round section)</option>
+            <option value="uniform">Uniform (flat bottom, constant depth)</option>
+            <option value="v">V (tapers to a point)</option>
+          </select>
+        </label>
+        <label class="inline"><input type="checkbox" id="route-guide" checked> Show route on preview</label>
+        <dl class="info">
+          <dt>Line width</dt><dd id="route-px">–</dd>
+          <dt>Depth / height</dt><dd id="route-depth">–</dd>
+        </dl>
+        <p id="route-warning" class="warning" hidden></p>
+      </div>
       <canvas id="preview"></canvas>
       <p class="hint">Preview is 8-bit for display only; the export keeps the full bit depth you chose. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
-      <div class="row"><button id="export-btn" type="button">Export PNG</button></div>
+      <div class="row">
+        <button id="export-btn" type="button">Export PNG</button>
+        <button id="export-route-btn" type="button" hidden>Export route layer</button>
+      </div>
+      <p id="route-layer-hint" class="hint" hidden>The route layer is a transparent RGBA PNG at the same pixel size, with a red line of the width above (flat profile), for overlaying in an image editor.</p>
       <p id="export-status" class="hint" role="status"></p>
     </section>
 
@@ -109,6 +154,7 @@
   <script src="js/geo.js"></script>
   <script src="js/sources.js"></script>
   <script src="js/heightmap.js"></script>
+  <script src="js/track.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

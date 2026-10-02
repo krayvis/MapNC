@@ -14,7 +14,7 @@
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
-  window.MapNC = { map, get elevation() { return elevation; }, get grey() { return grey; } }; // handle for debugging and automated tests
+  window.MapNC = { map, get elevation() { return elevation; }, get grey() { return grey; }, region: () => bounds }; // handle for debugging and automated tests
 
   // The selection, always stored as normalized bounds (south/west/north/east).
   let bounds = null;
@@ -171,6 +171,66 @@
     $('fetch-btn').disabled = tooBig || fetching;
   }
 
+  // ---- route track ------------------------------------------------------------------------
+
+  const Track = window.MapNCTrack;
+  let track = null;        // parsed track: { name, segments }
+  let trackLayer = null;   // Leaflet polyline group
+  let widthTouched = false; // true once the user edits the line width, so a re-fit won't overwrite it
+
+  function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
+
+  function showTrack() {
+    if (trackLayer) trackLayer.remove();
+    trackLayer = L.polyline(track.segments.map((seg) => seg.map((p) => [p.lat, p.lon])), { color: '#e11d48', weight: 3, interactive: false }).addTo(map);
+    const pts = track.segments.reduce((n, s) => n + s.length, 0);
+    $('track-info').textContent = (track.name ? track.name + ': ' : '') + Track.trackLengthKm(track).toFixed(1) + ' km, ' +
+      pts + ' points' + (track.segments.length > 1 ? ' in ' + track.segments.length + ' segments' : '') + '.';
+    $('track-info').hidden = false;
+    $('track-fit').hidden = false;
+    $('track-clear').hidden = false;
+    $('route-controls').hidden = false;
+    $('export-route-btn').hidden = false;
+    $('route-layer-hint').hidden = false;
+  }
+
+  function fitToTrack() {
+    const margin = Math.max(0, parseFloat($('track-margin').value) || 0) / 100;
+    const b = Track.padBounds(Track.trackBounds(track), margin);
+    setBounds(b);
+    map.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [30, 30] });
+    if (!widthTouched) {
+      // Default line width: about 0.8 % of the longer side of the region, 2 significant figures.
+      const g = Geo.groundSize(b), w = Math.max(g.widthM, g.heightM) * 0.008;
+      $('route-width').value = Number(w.toPrecision(2));
+    }
+  }
+
+  $('track-file').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0];
+    if (!f) return;
+    trackError('');
+    try {
+      track = Track.parseTrackText(await f.text(), f.name);
+    } catch (err) {
+      trackError(err.message);
+      return;
+    }
+    widthTouched = false;
+    showTrack();
+    fitToTrack();
+  });
+
+  $('track-fit').addEventListener('click', () => track && fitToTrack());
+  $('track-clear').addEventListener('click', () => {
+    track = null;
+    if (trackLayer) { trackLayer.remove(); trackLayer = null; }
+    $('track-file').value = '';
+    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'export-route-btn', 'route-layer-hint'].forEach((id) => { $(id).hidden = true; });
+    trackError('');
+    if (elevation) recompute();
+  });
+
   // ---- fetch + preview ---------------------------------------------------------------------
 
   let fetching = false;
@@ -202,7 +262,58 @@
       exaggeration: parseFloat($('exaggeration').value),
       bits: Number($('bits-select').value),
       invert: $('invert').checked,
+      route: routeBurn(),
     };
+  }
+
+  // ---- route rasterizing -------------------------------------------------------------------
+
+  let routeCache = null;   // { elev, key, weight }: the route weights depend only on grid, width and profile
+
+  /** Ground size of one output pixel in metres (mean of the two axes; they match to well under 1 %). */
+  function pixelMetres() {
+    const g = Geo.groundSize(elevation.bounds);
+    return (g.widthM / elevation.width + g.heightM / elevation.height) / 2;
+  }
+
+  function routeRadiusPx() {
+    const widthM = parseFloat($('route-width').value);
+    return Number.isFinite(widthM) && widthM > 0 ? widthM / 2 / pixelMetres() : 0;
+  }
+
+  function routeWeights(shape) {
+    const r = routeRadiusPx();
+    const key = shape + '|' + r.toFixed(3);
+    if (!routeCache || routeCache.elev !== elevation || routeCache.key !== key) {
+      routeCache = { elev: elevation, key, weight: Track.rasterize(track, elevation.bounds, elevation.width, elevation.height, r, shape) };
+    }
+    return routeCache.weight;
+  }
+
+  /** The { weight, fraction } the heightmap mapping needs, or null when there is nothing to burn. */
+  function routeBurn() {
+    if (!track || !elevation || !$('route-burn').checked) return null;
+    const pct = parseFloat($('route-amount').value);
+    if (!Number.isFinite(pct) || pct === 0 || routeRadiusPx() <= 0) return null;
+    return { weight: routeWeights($('route-shape').value), fraction: pct / 100 };
+  }
+
+  function updateRouteReadout() {
+    if (!track || !elevation) return;
+    const r = routeRadiusPx(), widthPx = Math.max(2 * r, 1.5);
+    $('route-px').textContent = r > 0 ? widthPx.toFixed(1) + ' px (' + (widthPx * pixelMetres()).toFixed(0) + ' m)' : '–';
+    const pct = parseFloat($('route-amount').value) || 0;
+    const metres = Math.abs(pct / 100) * (grey.hi - grey.lo) / grey.k;
+    $('route-depth').textContent = pct === 0 ? 'none' : (pct < 0 ? 'cuts ' : 'raises ') +
+      (metres >= 1 ? metres.toFixed(1) + ' m' : (metres * 1000).toFixed(0) + ' mm') + ' of terrain, ' +
+      Math.round(Math.abs(pct) / 100 * grey.maxVal) + ' grey levels';
+    const msgs = [];
+    if (r > 0 && widthPx < 3) msgs.push('The line is only about ' + widthPx.toFixed(1) + ' px wide and may be lost when carved. Widen it, or use a smaller region for more pixels.');
+    const b = elevation.bounds;
+    const outside = track.segments.some((seg) => seg.some((p) => p.lat < b.south || p.lat > b.north || p.lon < b.west || p.lon > b.east));
+    if (outside) msgs.push('Part of the route lies outside the selected region and is cut off.');
+    $('route-warning').textContent = msgs.join(' ');
+    $('route-warning').hidden = msgs.length === 0;
   }
 
   function recompute() {
@@ -217,6 +328,7 @@
     $('hm-clip').textContent = clip ? (100 * clip / total).toFixed(1) + '% of samples (' +
       (grey.clippedHigh ? 'above window' : '') + (grey.clippedHigh && grey.clippedLow ? ', ' : '') + (grey.clippedLow ? 'below window' : '') + ')' : 'none';
     $('export-status').textContent = '';
+    updateRouteReadout();
     drawPreview();
   }
 
@@ -233,7 +345,19 @@
       if (e.data[i] !== e.data[i]) { img.data[o] = 255; img.data[o + 2] = 255; img.data[o + 3] = 255; continue; } // no data = magenta
       img.data[o] = img.data[o + 1] = img.data[o + 2] = grey.data[i] >> shift; img.data[o + 3] = 255;
     }
-    c.getContext('2d').putImageData(img, 0, 0);
+    const ctx = c.getContext('2d');
+    ctx.putImageData(img, 0, 0);
+    if (track && $('route-guide').checked) {
+      // Guide line: about 2 screen pixels wide however large the grid is. Not part of any export.
+      ctx.strokeStyle = '#e11d48';
+      ctx.lineWidth = 2 * e.width / (c.clientWidth || 300);
+      ctx.lineJoin = ctx.lineCap = 'round';
+      for (const seg of Track.toPixels(track, e.bounds, e.width, e.height)) {
+        ctx.beginPath();
+        seg.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.stroke();
+      }
+    }
   }
 
   document.querySelectorAll('input[name="range-mode"]').forEach((r) => r.addEventListener('change', () => {
@@ -243,7 +367,28 @@
     recompute();
   }));
   ['range-lo', 'range-hi', 'exaggeration'].forEach((id) => $(id).addEventListener('input', scheduleRecompute));
-  ['bits-select', 'invert'].forEach((id) => $(id).addEventListener('change', recompute));
+  ['bits-select', 'invert', 'route-burn', 'route-shape', 'route-guide'].forEach((id) => $(id).addEventListener('change', recompute));
+  $('route-amount').addEventListener('input', scheduleRecompute);
+  $('route-width').addEventListener('input', () => { widthTouched = true; scheduleRecompute(); });
+
+  function saveBlob(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    return name;
+  }
+
+  function routeMetadata() {
+    if (!track || !routeBurn()) return {};
+    return {
+      RouteBurned: 'true',
+      RouteWidthM: $('route-width').value,
+      RouteAmountPct: $('route-amount').value,
+      RouteProfile: $('route-shape').value,
+    };
+  }
 
   function exportFilename() {
     const b = elevation.bounds, p = (v, pos, neg) => Math.abs(v).toFixed(3) + (v < 0 ? neg : pos);
@@ -265,17 +410,41 @@
         Exaggeration: String(grey.k),
         MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5),
         Inverted: String($('invert').checked),
+        ...routeMetadata(),
       });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = exportFilename();
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-      $('export-status').textContent = 'Saved ' + a.download + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
+      $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename()) + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
     } catch (err) {
       $('export-status').textContent = 'Export failed: ' + err.message;
     } finally {
       $('export-btn').disabled = false;
+    }
+  });
+
+  // Transparent RGBA layer: red line, flat profile, alpha = coverage. Same pixel grid as the heightmap.
+  $('export-route-btn').addEventListener('click', async () => {
+    if (!elevation || !track) return;
+    const btn = $('export-route-btn');
+    btn.disabled = true;
+    $('export-status').textContent = 'Encoding route layer…';
+    try {
+      const { width: W, height: H, bounds: b } = elevation;
+      const cover = Track.rasterize(track, b, W, H, routeRadiusPx(), 'uniform');
+      const rgba = new Uint8Array(W * H * 4);
+      for (let i = 0; i < cover.length; i++) {
+        rgba[i * 4] = 225; rgba[i * 4 + 1] = 29; rgba[i * 4 + 2] = 72;
+        rgba[i * 4 + 3] = Math.round(cover[i] * 255);
+      }
+      const blob = await HM.encodePng(W, H, 8, rgba, {
+        Software: 'MapNC',
+        Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','),
+        RouteWidthM: $('route-width').value,
+      }, 4);
+      $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename().replace(/_(8|16)bit\.png$/, '_route.png')) +
+        ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
+    } catch (err) {
+      $('export-status').textContent = 'Export failed: ' + err.message;
+    } finally {
+      btn.disabled = false;
     }
   });
 

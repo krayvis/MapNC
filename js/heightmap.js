@@ -6,6 +6,11 @@
  * lo + (hi - lo)/k clips to white. No-data samples always become grey 0. `invert` flips the result afterwards.
  * Metres per grey level = (hi - lo) / (k * maxVal).
  *
+ * Route burn (opts.route = { weight: Float32Array 0..1, fraction }): after the mapping above and before clamping,
+ *   t += weight * fraction.   `fraction` is a share of the full grey range (so +0.03 raises the route by 3 % of the
+ *   range, -0.03 cuts a groove of that depth). It is applied to terrain height, BEFORE `invert`, so "raise" always
+ *   means higher terrain even when the picture is inverted. In metres this is fraction * (hi - lo) / k.
+ *
  * Works in browsers and Node 18+ (needs Blob + CompressionStream for PNG encoding).
  */
 (function (root) {
@@ -30,11 +35,13 @@
     const { lo, hi } = resolveRange(opts.stats, opts.rangeMode, opts.manualLo, opts.manualHi);
     const scale = k / (hi - lo);
     const out = bits === 8 ? new Uint8Array(elev.length) : new Uint16Array(elev.length);
+    const route = opts.route && opts.route.weight ? opts.route : null;
     let clippedHigh = 0, clippedLow = 0, nodata = 0;
     for (let i = 0; i < elev.length; i++) {
       const z = elev[i];
       if (z !== z) { nodata++; out[i] = 0; continue; }
       let t = (z - lo) * scale;
+      if (route) t += route.weight[i] * route.fraction;
       if (t > 1) { clippedHigh++; t = 1; } else if (t < 0) { clippedLow++; t = 0; }
       const g = Math.round(t * maxVal);
       out[i] = opts.invert ? maxVal - g : g;
@@ -76,12 +83,14 @@
   }
 
   /**
-   * Encode greyscale samples (Uint8Array for 8-bit, Uint16Array for 16-bit) as a PNG Blob.
+   * Encode samples as a PNG Blob. channels = 1: greyscale (Uint8Array for 8-bit, Uint16Array for 16-bit).
+   * channels = 4: 8-bit RGBA (Uint8Array/Uint8ClampedArray of width*height*4), used for the route layer.
    * Rows use PNG filter type 2 ("Up"), which suits smooth terrain; the first row uses type 0 (None). `text` adds tEXt chunks.
    */
-  async function encodePng(width, height, bits, samples, text) {
+  async function encodePng(width, height, bits, samples, text, channels) {
+    channels = channels === 4 ? 4 : 1;
     const bpp = bits === 16 ? 2 : 1;
-    const rowBytes = width * bpp;
+    const rowBytes = width * bpp * channels;
     const raw = new Uint8Array(height * (rowBytes + 1));
     let cur = new Uint8Array(rowBytes);
     let prev = new Uint8Array(rowBytes);
@@ -89,7 +98,7 @@
       if (bits === 16) {
         for (let x = 0, s = y * width; x < width; x++) { const v = samples[s + x]; cur[2 * x] = v >> 8; cur[2 * x + 1] = v & 255; }
       } else {
-        cur.set(samples.subarray(y * width, (y + 1) * width));
+        cur.set(samples.subarray(y * rowBytes, (y + 1) * rowBytes));
       }
       const o = y * (rowBytes + 1);
       raw[o] = y === 0 ? 0 : 2;    // first row has no row above: filter None
@@ -100,7 +109,7 @@
     const ihdr = new Uint8Array(13);
     const dv = new DataView(ihdr.buffer);
     dv.setUint32(0, width); dv.setUint32(4, height);
-    ihdr[8] = bits; ihdr[9] = 0;     // colour type 0 = greyscale
+    ihdr[8] = bits; ihdr[9] = channels === 4 ? 6 : 0;     // colour type 6 = RGBA, 0 = greyscale
     ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
     const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr)];
     for (const [key, value] of Object.entries(text || {})) {
