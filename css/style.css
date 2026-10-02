@@ -181,3 +181,14 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .help li { margin: 4px 0; }
 .help b { color: var(--fg); }
 #edit-view .row button { flex: 1; }
+
+/* Rotate button: circular arrows around a small frame that turns upright in portrait. */
+#aspect-swap { display: inline-flex; align-items: center; justify-content: center; padding: 4px 8px; }
+#aspect-swap svg { width: 24px; height: 24px; }
+#aspect-swap .orient { fill: currentColor; fill-opacity: .2; stroke-width: 1.5; transform-box: fill-box; transform-origin: center; transition: transform .2s; }
+#aspect-swap.is-portrait .orient { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { #aspect-swap .orient { transition: none; } }
+
+/* Carve size: the number takes the room, the unit menu is only as wide as its text. */
+#carve-size { flex: 1 1 0; width: auto; min-width: 0; }
+.row > select#carve-unit { flex: 0 0 auto; width: auto; min-width: 4.5em; }

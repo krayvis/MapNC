@@ -258,7 +258,22 @@
     if (v === 'free') return null;
     if (v === 'custom') return Geo.parseRatio($('aspect-w').value, $('aspect-h').value);
     const [w, h] = v.split(':');
-    return Geo.parseRatio(w, h);
+    return portrait ? Geo.parseRatio(h, w) : Geo.parseRatio(w, h);
+  }
+
+  // Presets are listed landscape (4:3). Rotating flips them to portrait (3:4) in the menu itself, as a camera or phone
+  // does, rather than turning the choice into a custom ratio. The option values stay landscape; only the label and
+  // the ratio read from them change.
+  let portrait = false;
+  const baseLabel = new Map();
+  const flipLabel = (t) => t.replace(/^(\d+):(\d+)/, '$2:$1').replace(/(\d+)×(\d+)/g, '$2×$1');
+  function relabelAspect() {
+    for (const o of $('aspect-select').options) {
+      if (!/^\d+:\d+$/.test(o.value)) continue;
+      if (!baseLabel.has(o)) baseLabel.set(o, o.textContent);
+      o.textContent = portrait ? flipLabel(baseLabel.get(o)) : baseLabel.get(o);
+    }
+    $('aspect-swap').classList.toggle('is-portrait', portrait);
   }
 
   function setCustom(w, h) {
@@ -289,7 +304,7 @@
     if (ratio === null) return;
     const v = $('aspect-select').value;
     if (v === 'custom') setCustom($('aspect-h').value, $('aspect-w').value);
-    else { const [w, h] = v.split(':'); setCustom(h, w); }
+    else { portrait = !portrait; relabelAspect(); }
     applyRatio();
   });
 

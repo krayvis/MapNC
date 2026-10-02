@@ -53,7 +53,14 @@ const srv = http.createServer((q, r) => { const p = path.join(require('./lib.js'
   s = await st(); check('3:2 applied', Math.abs(s.ratio - 1.5) < 1e-4, s.ratio);
   check('area kept', Math.abs(s.w * s.h / area0 - 1) < 0.002, (s.w * s.h / area0).toFixed(4));
   await pg.click('#aspect-swap'); s = await st();
-  check('swap -> 2:3 portrait', Math.abs(s.ratio - 2 / 3) < 1e-4 && (await pg.inputValue('#aspect-w')) === '2' && (await pg.inputValue('#aspect-h')) === '3', `${s.ratio} custom ${await pg.inputValue('#aspect-w')}:${await pg.inputValue('#aspect-h')}`);
+  const optText = () => pg.locator('#aspect-select option:checked').innerText();
+  check('rotate -> 2:3 portrait, menu keeps the preset', Math.abs(s.ratio - 2 / 3) < 1e-4 && (await pg.inputValue('#aspect-select')) === '3:2' && /^2:3/.test(await optText()), `${s.ratio} ${await pg.inputValue('#aspect-select')} ${await optText()}`);
+  await pg.selectOption('#aspect-select', '4:3'); s = await st();
+  check('portrait persists across presets (3:4)', Math.abs(s.ratio - 3 / 4) < 1e-4 && /^3:4/.test(await optText()), `${s.ratio} ${await optText()}`);
+  await pg.selectOption('#aspect-select', '5:4'); check('label flips its print sizes too', /^4:5 \(10×8, 20×16\)/.test(await optText()), await optText());
+  await pg.click('#aspect-swap'); s = await st(); check('rotate back -> landscape 5:4', Math.abs(s.ratio - 1.25) < 1e-4 && /^5:4/.test(await optText()), `${s.ratio} ${await optText()}`);
+  await pg.selectOption('#aspect-select', 'custom'); await pg.fill('#aspect-w', '2'); await pg.fill('#aspect-h', '3'); await pg.press('#aspect-h', 'Tab'); await pg.click('#aspect-swap'); s = await st();
+  check('rotate on custom swaps the two numbers', (await pg.inputValue('#aspect-w')) === '3' && (await pg.inputValue('#aspect-h')) === '2' && Math.abs(s.ratio - 1.5) < 1e-4, `${await pg.inputValue('#aspect-w')}:${await pg.inputValue('#aspect-h')}`);
   await pg.fill('#aspect-w', '5'); await pg.fill('#aspect-h', '7'); await pg.press('#aspect-h', 'Tab'); s = await st();
   check('custom 5:7', Math.abs(s.ratio - 5 / 7) < 1e-4, s.ratio);
 
