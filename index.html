@@ -95,32 +95,26 @@
     <details class="pane" id="pane-clean" hidden>
       <summary><span class="step">2</span> Clean up &amp; edit route</summary>
       <div class="pane-body">
-        <p class="hint">Experiment with a noisy tracker. The original track is the dashed grey line on the map; the cleaned one is red. Each step is optional, and nothing is saved back to your file.</p>
+        <p class="hint">Dashed grey is your original track, red is the result. Your file is never changed.</p>
+        <h3>Automatic clean-up</h3>
         <label class="inline"><input type="checkbox" id="clean-spikes"> Remove GPS spikes</label>
         <div class="dep" data-for="clean-spikes" hidden>
           <label class="field">Spike size (m)
             <input id="clean-spike-m" type="number" min="1" step="1" value="20">
           </label>
-          <p class="hint">Drops points that jump farther than this off the path and straight back. Real hairpins are kept. Use a value well above your normal point spacing.</p>
+          <p class="hint">Points that jump farther than this off the path and straight back. Real hairpins stay.</p>
         </div>
         <label class="field">Minimum point spacing (m, 0 = off)
           <input id="clean-spacing" type="number" min="0" step="0.5" value="0">
         </label>
-        <p class="hint">Removes the cluster of jittering points from standing still.</p>
+        <p class="hint">Collapses the jitter from standing still.</p>
         <label class="inline"><input type="checkbox" id="clean-merge"> Merge out-and-back sections</label>
         <div class="dep" data-for="clean-merge" hidden>
           <label class="field">Merge distance (m)
             <input id="clean-merge-m" type="number" min="0.5" step="0.5" value="3">
           </label>
-          <p class="hint">Where the way back runs along the way out within this distance, both are pulled onto their average line. Stretches close together along the path (switchbacks) are left alone.</p>
+          <p class="hint">Pulls the way out and the way back onto their average line. Switchbacks are left alone.</p>
         </div>
-        <label class="inline"><input type="checkbox" id="spline-on"> Fit a smooth spline through the points</label>
-        <div class="dep" data-for="spline-on" hidden>
-        <label class="field">Curve accuracy (m)
-          <input id="spline-tol" type="number" min="0.05" step="0.1" value="0.5">
-        </label>
-        </div>
-        <p class="hint">Draws a smooth curve that passes through every point, on the map, the preview and all exports. Remove stray points by hand first (Edit points on the map), since the curve follows each one. The accuracy is how far the straight pieces approximating the curve may stray from it; smaller is smoother and a heavier file. Not affected by the edit lock.</p>
         <div class="row">
           <button id="clean-suggest" type="button">Suggested settings</button>
           <button id="clean-reset" type="button">Reset</button>
@@ -132,10 +126,18 @@
           <dt>Spikes removed</dt><dd id="clean-spikes-n">–</dd>
         </dl>
         <h3>Edit points by hand</h3>
-        <p class="hint">Fix what the automatic clean-up cannot, checking the route against satellite imagery in a dedicated editing view.</p>
+        <p class="hint">Remove strays and fix errors against satellite imagery.</p>
         <button id="edit-toggle" type="button">Edit points on the map…</button>
         <p id="edit-summary" class="hint" hidden></p>
         <button id="edit-discard" type="button" hidden>Discard manual edits</button>
+        <h3>Smooth curve</h3>
+        <label class="inline"><input type="checkbox" id="spline-on"> Fit a spline through the points</label>
+        <div class="dep" data-for="spline-on" hidden>
+          <label class="field">Curve accuracy (m)
+            <input id="spline-tol" type="number" min="0.05" step="0.1" value="0.5">
+          </label>
+          <p class="hint">Do this last: the curve passes through every point, so remove strays first. It is used on the map, preview and every export.</p>
+        </div>
       </div>
     </details>
 
