@@ -413,9 +413,10 @@
   let widthTouched = false; // true once the user edits the line width, so a re-fit won't overwrite it
 
   /** The route as drawn and exported: the points themselves, or a spline fitted through them when that is switched on. */
+  const SPLINE_TOL_M = 0.25;   // how far the straight pieces approximating the curve may stray from it
   function shown() {
     if (!track || !$('spline-on').checked) return track;
-    try { return Track.splineTrack(track, parseFloat($('spline-tol').value) || 1); } catch (e) { return track; }
+    try { return Track.splineTrack(track, SPLINE_TOL_M); } catch (e) { return track; }
   }
 
   function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
@@ -502,7 +503,6 @@
     updateRouteExportInfo();
   }
   $('spline-on').addEventListener('change', splineChanged);
-  $('spline-tol').addEventListener('input', splineChanged);
   $('clean-suggest').addEventListener('click', () => { setCleanInputs(20, 3); applyClean(); });
   $('clean-reset').addEventListener('click', () => { setCleanInputs(0, 0); applyClean(); });
 

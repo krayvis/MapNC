@@ -45,9 +45,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   const pathD = () => pg.evaluate(() => [...document.querySelectorAll('.leaflet-overlay-pane path')].map((e) => e.getAttribute('d') || '').join('|').length);
   const ctrlN = () => pg.evaluate(() => window.MapNC.track().segments.reduce((n, s) => n + s.length, 0));
   const d0 = await pathD(), n0 = await ctrlN();
-  check('accuracy field hidden until spline is on', !(await pg.locator('[data-for="spline-on"]').isVisible()));
   await pg.check('#spline-on'); await pg.waitForTimeout(400);
-  check('accuracy field shown', await pg.locator('[data-for="spline-on"]').isVisible());
   check('spline redraws the map line', (await pathD()) !== d0);
   check('spline leaves the editable points alone', (await ctrlN()) === n0);
   await pg.uncheck('#spline-on'); await pg.waitForTimeout(400);
