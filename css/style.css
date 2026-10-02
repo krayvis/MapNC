@@ -1,4 +1,7 @@
+/* Light is the default. js/theme.js sets data-theme="dark" on <html> (Auto follows the system setting). */
 :root {
+  color-scheme: light;               /* native controls (file picker, number spinners, scrollbars) follow the theme */
+  accent-color: var(--accent);
   --bg: #f6f7f8;
   --fg: #1c2024;
   --muted: #5f6870;
@@ -6,15 +9,24 @@
   --accent: #2563eb;
   --warn: #b42318;
   --warn-bg: #fef3f2;
+  --map-bg: #ddd;
+  --map-ui-bg: rgba(255, 255, 255, .85);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #171a1d; --fg: #e8eaec; --muted: #9aa3ab; --line: #333a40;
-    --accent: #6ea0ff; --warn: #ff8a80; --warn-bg: #3a1f1d;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #171a1d;
+  --fg: #e8eaec;
+  --muted: #9aa3ab;
+  --line: #333a40;
+  --accent: #6ea0ff;
+  --warn: #ff8a80;
+  --warn-bg: #3a1f1d;
+  --map-bg: #1b1f23;
+  --map-ui-bg: rgba(23, 26, 29, .85);
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* classes that set display (.row, .info) would otherwise defeat the hidden attribute */
 html, body { height: 100%; margin: 0; }
 body {
   display: flex;
@@ -32,7 +44,9 @@ body {
 }
 #map { flex: 1; min-width: 0; }
 
-h1 { margin: 0 0 4px; font-size: 22px; }
+h1 { margin: 0; font-size: 22px; }
+.title-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.theme-btn { padding: 4px 10px; font-size: 12px; color: var(--muted); }
 h3 { margin: 14px 0 6px; font-size: 14px; }
 h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .lede, .hint { color: var(--muted); margin: 4px 0 8px; }
@@ -81,3 +95,20 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
   #panel { width: 100%; max-height: 45vh; border-right: 0; border-top: 1px solid var(--line); }
   #map { min-height: 55vh; }
 }
+
+/* ---- Map in dark mode -------------------------------------------------------------------------
+ * The OSM tiles are light. Rather than switch tile provider (a different data source and attribution), invert them
+ * and rotate hue back so water stays bluish and roads stay light-on-dark. Only the tile pane is filtered; the
+ * selection rectangle, track and handles sit in other panes and keep their colours. */
+.leaflet-container { background: var(--map-bg); }
+:root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9); }
+
+.leaflet-bar a, .leaflet-bar a:hover {
+  background-color: var(--bg); color: var(--fg); border-bottom-color: var(--line);
+}
+.leaflet-bar { border-color: var(--line); }
+.leaflet-bar a:hover { background-color: var(--line); }
+.leaflet-bar a.leaflet-disabled { background-color: var(--bg); color: var(--muted); }
+.leaflet-container .leaflet-control-attribution { background: var(--map-ui-bg); color: var(--muted); }  /* matches Leaflet's own specificity */
+.leaflet-container .leaflet-control-attribution a { color: var(--accent); }
+.leaflet-control-scale-line { background: var(--map-ui-bg); color: var(--fg); border-color: var(--fg); text-shadow: none; }

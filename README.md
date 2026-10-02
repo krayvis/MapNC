@@ -13,6 +13,8 @@ Static site, no build step: plain HTML, CSS and JavaScript.
 3. **Fetch elevation**, then choose the elevation range (auto or manual), vertical exaggeration, and 16-bit (default) or 8-bit output. The panel shows the range and the metres per grey level.
 4. With a route loaded, set the **line width** (metres on the ground), **raise/lower** amount (% of the grey range) and **profile** (rounded, uniform or V), then **Export PNG**. **Export route layer** saves the line alone as a transparent RGBA PNG on the same pixel grid.
 
+The **Theme** button at the top cycles Auto (follows your system), Light and Dark; dark mode also darkens the map tiles with a CSS filter.
+
 The preview is 8-bit for display only; the export keeps the bit depth you pick. Settings are also written into the PNG as text chunks (source, bounds, elevation window, metres per grey level, route settings).
 
 Size is capped at 4096 px per side by default (Advanced menu to change). Larger caps use a lot of memory.
@@ -38,6 +40,7 @@ To run it locally, serve the folder with any static server, for example `python3
 | `js/heightmap.js` | Elevation to grey mapping, route burn, PNG encoder (16/8-bit and RGBA) |
 | `js/track.js` | GPX/TCX parsing and route rasterizing |
 | `js/app.js` | Map, UI wiring |
+| `js/theme.js` | Light / dark / auto theme (loaded in `<head>` to avoid a flash) |
 | `vendor/` | Leaflet and geotiff.js (vendored) |
 | `PLAN.md` | Build plan, decisions and open risks |
 

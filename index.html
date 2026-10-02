@@ -4,12 +4,17 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>MapNC</title>
+  <meta name="color-scheme" content="light dark">
+  <script src="js/theme.js"></script>
   <link rel="stylesheet" href="vendor/leaflet.css">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <aside id="panel">
-    <h1>MapNC</h1>
+    <div class="title-row">
+      <h1>MapNC</h1>
+      <button id="theme-btn" type="button" class="theme-btn">Theme: Auto</button>
+    </div>
     <p class="lede">Select a region, get a greyscale heightmap. Everything runs in your browser; nothing is uploaded.</p>
 
     <section>
