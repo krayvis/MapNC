@@ -457,7 +457,7 @@
   const num = (id) => Math.max(0, parseFloat($(id).value) || 0);
   const cleanOpts = () => ({
     spikeM: $('clean-spikes').checked ? num('clean-spike-m') : 0,
-    spacingM: num('clean-spacing'),
+    spacingM: num('clean-spacing'), mergeM: $('clean-merge').checked ? num('clean-merge-m') : 0,
   });
 
   function applyClean() {
@@ -479,14 +479,22 @@
 
   let cleanTimer = null;
   const scheduleClean = () => { clearTimeout(cleanTimer); cleanTimer = setTimeout(applyClean, 150); };
-  ['clean-spikes', 'clean-spike-m', 'clean-spacing'].forEach((id) => $(id).addEventListener('input', scheduleClean));
+  ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-merge', 'clean-merge-m'].forEach((id) => $(id).addEventListener('input', scheduleClean));
   function setCleanInputs(spikes, spacing) {
     $('clean-spikes').checked = spikes > 0;
     $('clean-spike-m').value = spikes > 0 ? spikes : 20;
     $('clean-spacing').value = spacing;
+    $('clean-merge').checked = false; $('clean-merge-m').value = 3;
+    syncDependents();
   }
+
+  // Fields that only matter while a checkbox is on (data-for="<checkbox id>") are hidden until it is ticked.
+  function syncDependents() {
+    document.querySelectorAll('[data-for]').forEach((el) => { el.hidden = !$(el.dataset.for).checked; });
+  }
+  document.querySelectorAll('[data-for]').forEach((el) => $(el.dataset.for).addEventListener('change', syncDependents));
+  syncDependents();
   function splineChanged() {
-    $('spline-tol-wrap').hidden = !$('spline-on').checked;
     if (!track) return;
     trackLayer.setLatLngs(ll(shown()));
     syncRawLayer();
@@ -1042,7 +1050,7 @@
   /** Keep every control that depends on the editing state in step with it. */
   function refreshEditUi() {
     const locked = !!editTrack, n = edit.undo.length;
-    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-suggest', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
+    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-merge', 'clean-merge-m', 'clean-suggest', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
     // main sidebar: a short summary and the way to unlock
     $('edit-summary').hidden = !locked;
     $('edit-summary').textContent = locked ? 'Manual edits: ' + n + ' change' + (n === 1 ? '' : 's') + '. The settings above are locked until you discard them.' : '';

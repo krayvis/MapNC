@@ -114,6 +114,7 @@
   //   3. smoothing  Gaussian average along arc length (resampled evenly first, so point density does not bias it);
   //                 the two ends stay exactly where they were
   //   4. simplify   Ramer-Douglas-Peucker: drops nodes that deviate from the straight line by less than a tolerance
+  //   5. merge      out-and-back stretches within a few metres of each other are pulled onto their average line
 
   const M_LAT = 110574, M_LON = 111320;
 
@@ -269,6 +270,66 @@
     return makeTrack(track.name, track.segments.map((seg) => splineFit(seg.map((p) => toXY(p, f)), tolM).map((q) => toLL(q, f))));
   }
 
+  /**
+   * Out-and-back clean-up. Where one stretch of the route runs back along another within `d` metres, in roughly the
+   * opposite direction, each point is moved part-way (up to half) toward the nearest point on the other stretch, so
+   * the two legs settle onto their average line. Stretches that are close in distance along the route (switchbacks,
+   * tight turns) are left alone: only parts at least max(50 m, 10 d) apart along the path count as "the way back".
+   * The pull fades out over the last quarter of `d`, so the edge of a merged section has no kink. Two passes tighten
+   * the match. `segs` is arrays of {x, y} in metres; returns new arrays (same point counts).
+   */
+  function mergeBacktracks(segs, d, passes) {
+    if (!(d > 0)) return segs;
+    let cur = segs.map((sg) => sg.map((q) => ({ x: q.x, y: q.y })));
+    const gap = Math.max(50, 10 * d), cell = d * 2;
+    for (let pass = 0; pass < (passes || 2); pass++) {
+      const arcs = cur.map((sg) => { const a = [0]; for (let i = 1; i < sg.length; i++) a.push(a[i - 1] + dist(sg[i - 1], sg[i])); return a; });
+      const grid = new Map(), key = (cx, cy) => cx + ',' + cy;
+      cur.forEach((sg, b) => {
+        for (let j = 0; j + 1 < sg.length; j++) {
+          const A = sg[j], B = sg[j + 1], n = Math.max(1, Math.ceil(dist(A, B) / (cell / 2)));
+          const seen = new Set();
+          for (let k = 0; k <= n; k++) {
+            const k2 = key(Math.floor((A.x + (B.x - A.x) * k / n) / cell), Math.floor((A.y + (B.y - A.y) * k / n) / cell));
+            if (seen.has(k2)) continue; seen.add(k2);
+            (grid.get(k2) || grid.set(k2, []).get(k2)).push(b, j);
+          }
+        }
+      });
+      const next = cur.map((sg) => sg.map((q) => ({ x: q.x, y: q.y })));
+      cur.forEach((sg, a) => {
+        for (let i = 0; i < sg.length; i++) {
+          const P = sg[i], u = sg[Math.min(i + 1, sg.length - 1)], l = sg[Math.max(i - 1, 0)];
+          const hl = Math.hypot(u.x - l.x, u.y - l.y);
+          if (!hl) continue;
+          const hx = (u.x - l.x) / hl, hy = (u.y - l.y) / hl;
+          const cx = Math.floor(P.x / cell), cy = Math.floor(P.y / cell);
+          let best = null, bestD = d;
+          for (let ox = -1; ox <= 1; ox++) for (let oy = -1; oy <= 1; oy++) {
+            const list = grid.get(key(cx + ox, cy + oy));
+            if (!list) continue;
+            for (let m = 0; m < list.length; m += 2) {
+              const b = list[m], j = list[m + 1], B = cur[b];
+              if (b === a && Math.min(Math.abs(arcs[a][i] - arcs[b][j]), Math.abs(arcs[a][i] - arcs[b][j + 1])) < gap) continue;
+              const A0 = B[j], A1 = B[j + 1], vx = A1.x - A0.x, vy = A1.y - A0.y, l2 = vx * vx + vy * vy;
+              if (!l2) continue;
+              const t = Math.max(0, Math.min(1, ((P.x - A0.x) * vx + (P.y - A0.y) * vy) / l2));
+              const q = { x: A0.x + t * vx, y: A0.y + t * vy }, dd = dist(P, q);
+              if (dd >= bestD || (hx * vx + hy * vy) / Math.sqrt(l2) > -0.7) continue;   // not opposite enough (about 45 degrees)
+              best = q; bestD = dd;
+            }
+          }
+          if (best) {
+            const f = bestD < 0.75 * d ? 1 : (d - bestD) / (0.25 * d);
+            next[a][i] = { x: P.x + 0.5 * f * (best.x - P.x), y: P.y + 0.5 * f * (best.y - P.y) };
+          }
+        }
+      });
+      cur = next;
+    }
+    return cur;
+  }
+
   /** Largest distance from (a sample of) the original vertices to the cleaned polylines, in metres. */
   function maxShift(orig, cleaned) {
     const cap = 2000, stride = Math.max(1, Math.ceil(orig.reduce((n, s) => n + s.length, 0) / cap));
@@ -282,7 +343,7 @@
   }
 
   /**
-   * Clean a track. opts: { spikeM, spacingM, smoothM, simplifyM }, each 0/undefined = skip that step.
+   * Clean a track. opts: { spikeM, spacingM, smoothM, simplifyM, mergeM }, each 0/undefined = skip that step.
    * maxShiftM is measured from the original points that were not removed as spikes (a removed spike is not a "shift").
    * Returns { track, stats: { pointsBefore, pointsAfter, spikes, lengthBeforeKm, lengthAfterKm, maxShiftM, changed } }.
    */
@@ -303,7 +364,8 @@
       if (o.simplifyM > 0) pts = simplify(pts, o.simplifyM);
       return pts;
     });
-    const changed = !!(o.spikeM > 0 || o.spacingM > 0 || o.smoothM > 0 || o.simplifyM > 0);
+    if (o.mergeM > 0) cleaned.splice(0, cleaned.length, ...mergeBacktracks(cleaned, o.mergeM));
+    const changed = !!(o.spikeM > 0 || o.spacingM > 0 || o.smoothM > 0 || o.simplifyM > 0 || o.mergeM > 0);
     let out = track;
     if (changed) {
       try { out = makeTrack(track.name, cleaned.map((seg) => seg.map((q) => toLL(q, f)))); } catch (e) { out = track; }
@@ -449,7 +511,7 @@
     };
   }
 
-  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, splineTrack, splineFit, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
+  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, splineTrack, splineFit, mergeBacktracks, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCTrack = api;
 })(typeof self !== 'undefined' ? self : this);

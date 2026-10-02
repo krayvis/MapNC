@@ -81,4 +81,29 @@ check('cleaned path hugs the true path', rms(cl) < 3, 'rms ' + rms(cl).toFixed(2
   check('spline of a straight line adds no points', T.splineTrack(line, 0.5).segments[0].length === 4);
   check('spline with fewer than 3 points is unchanged', T.splineTrack(T.makeTrack('s', [[{ lat: 40, lon: -120 }, { lat: 40.001, lon: -120 }]]), 0.5).segments[0].length === 2);
 }
+
+// out-and-back merge
+{
+  const path = (i, n) => { const t = i / n * 600; return { x: t, y: 40 * Math.sin(t / 90) }; };
+  const jig = (q, amp) => ({ x: q.x + (rnd() - 0.5) * 2 * amp, y: q.y + (rnd() - 0.5) * 2 * amp });
+  const out = [], back = [];
+  for (let i = 0; i <= 120; i++) out.push(jig(path(i, 120), 1.4));
+  for (let i = 0; i <= 100; i++) back.push(jig(path(100 - i, 100), 1.4));
+  const sep = (A, B) => { let w = 0, sum = 0; for (const p of A) { let b = 1e9; for (let j = 1; j < B.length; j++) b = Math.min(b, T.distToSeg(p, B[j - 1], B[j])); w = Math.max(w, b); sum += b; } return { max: w, mean: sum / A.length }; };
+  const before = sep(out, back);
+  const m = T.mergeBacktracks([out.concat(back)], 3);
+  const o2 = m[0].slice(0, out.length), b2 = m[0].slice(out.length);
+  const after = sep(o2, b2);
+  check('merge pulls the two legs together', after.mean < before.mean * 0.4, before.mean.toFixed(2) + ' -> ' + after.mean.toFixed(2) + ' m mean');
+  check('merge keeps point counts', m[0].length === out.length + back.length);
+  const moved = Math.max(...m[0].map((q, i) => d(q, i < out.length ? out[i] : back[i - out.length])));
+  check('merge moves no point farther than the distance', moved <= 3, moved.toFixed(2) + ' m');
+  const far = [[...Array(60).keys()].map((i) => ({ x: i * 10, y: 0 })), [...Array(60).keys()].map((i) => ({ x: 590 - i * 10, y: 25 }))];
+  const fm = T.mergeBacktracks([far[0].concat(far[1])], 3);
+  check('legs 25 m apart are left alone', fm[0].every((q, i) => q.x === far[0].concat(far[1])[i].x && q.y === far[0].concat(far[1])[i].y));
+  const sw = [...Array(6).keys()].map((i) => ({ x: i * 4, y: 0 })).concat([...Array(6).keys()].map((i) => ({ x: 20 - i * 4, y: 2.5 })));
+  const sm = T.mergeBacktracks([sw], 3);
+  check('a tight switchback (short path between legs) is left alone', sm[0].every((q, i) => q.x === sw[i].x && q.y === sw[i].y));
+  check('merge off returns the input', T.mergeBacktracks([out], 0)[0] === out);
+}
 console.log(fails.length ? 'FAILED: ' + fails.join('; ') : 'all clean-up checks pass');

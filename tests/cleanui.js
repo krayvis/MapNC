@@ -32,13 +32,22 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('length + shift reported', /→/.test(await txt('clean-length')) && /m from the original/.test(await txt('clean-shift')), `${await txt('clean-length')} | ${await txt('clean-shift')}`);
   check('original shown dashed under the cleaned line', (await paths()) === p0 + 1);
   check('cleaning leaves the heightmap untouched', (await sum()) === base);
+  await pg.uncheck('#clean-spikes');
+  check('spike size hidden until spike removal is on', !(await pg.locator('#clean-spike-m').isVisible()));
+  await pg.check('#clean-spikes'); check('spike size shown when on', await pg.locator('#clean-spike-m').isVisible());
+  await pg.uncheck('#clean-spikes');
+  check('merge distance hidden until merge is on', !(await pg.locator('#clean-merge-m').isVisible()));
+  await pg.check('#clean-merge'); await pg.waitForTimeout(500);
+  check('merge distance shown when on', await pg.locator('#clean-merge-m').isVisible());
+  check('merge counts as a clean-up change', /→|unchanged/.test(await txt('clean-points')));
+  await pg.uncheck('#clean-merge'); await pg.waitForTimeout(400);
   // spline fit: display/export only, the editable points stay put
   const pathD = () => pg.evaluate(() => [...document.querySelectorAll('.leaflet-overlay-pane path')].map((e) => e.getAttribute('d') || '').join('|').length);
   const ctrlN = () => pg.evaluate(() => window.MapNC.track().segments.reduce((n, s) => n + s.length, 0));
   const d0 = await pathD(), n0 = await ctrlN();
-  check('accuracy field hidden until spline is on', !(await pg.locator('#spline-tol-wrap').isVisible()));
+  check('accuracy field hidden until spline is on', !(await pg.locator('[data-for="spline-on"]').isVisible()));
   await pg.check('#spline-on'); await pg.waitForTimeout(400);
-  check('accuracy field shown', await pg.locator('#spline-tol-wrap').isVisible());
+  check('accuracy field shown', await pg.locator('[data-for="spline-on"]').isVisible());
   check('spline redraws the map line', (await pathD()) !== d0);
   check('spline leaves the editable points alone', (await ctrlN()) === n0);
   await pg.uncheck('#spline-on'); await pg.waitForTimeout(400);
