@@ -3,7 +3,7 @@
 'use strict';
 const { spawnSync } = require('child_process');
 const path = require('path');
-const ALL = ['clean', 'pngtest', 'vec', 'stream', 'hid', 'theme', 'default', 'aspect', 'auto', 'cleanui', 'edit', 'exports', 'smoke5'];
+const ALL = ['clean', 'pngtest', 'vec', 'marks', 'stream', 'hid', 'theme', 'default', 'aspect', 'auto', 'cleanui', 'edit', 'exports', 'smoke5'];
 const want = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
 let failed = 0;
 for (const name of want) {

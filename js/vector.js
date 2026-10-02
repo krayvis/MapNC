@@ -4,7 +4,7 @@
  * CAM packages put the job origin bottom-left and draw Y up; images and SVG go Y down). Units are millimetres of the
  * finished carve when `mmPerPx` is given (carve size entered), otherwise heightmap pixels.
  *
- * Inputs: track (MapNCTrack), bounds, W/H (heightmap grid), opts { mmPerPx, lineWidth, border, title }.
+ * Inputs: track (MapNCTrack), bounds, W/H (heightmap grid), opts { mmPerPx, lineWidth, border, marks, title }.
  * `lineWidth` is in the output units and only affects how the SVG strokes look: CAM software takes the centre line.
  */
 (function (root) {
@@ -20,6 +20,18 @@
     return Track.toPixels(track, bounds, W, H).map((seg) => seg.map((p) => ({ x: p.x * k, y: p.y * k })));
   }
 
+  /** Corner brackets (L shapes) inside the extent, touching the exact corners, so the group's bounding box is the
+   *  heightmap's extent. Returned as polylines in output units, y down from the top-left. */
+  function cornerMarks(w, h) {
+    const L = Math.max(w, h) * 0.04;
+    return [
+      [{ x: 0, y: L }, { x: 0, y: 0 }, { x: L, y: 0 }],
+      [{ x: w - L, y: 0 }, { x: w, y: 0 }, { x: w, y: L }],
+      [{ x: w, y: h - L }, { x: w, y: h }, { x: w - L, y: h }],
+      [{ x: L, y: h }, { x: 0, y: h }, { x: 0, y: h - L }],
+    ];
+  }
+
   function toSvg(track, bounds, W, H, opts) {
     const o = opts || {}, k = o.mmPerPx > 0 ? o.mmPerPx : 1, unit = o.mmPerPx > 0 ? 'mm' : '';
     const w = W * k, h = H * k;
@@ -31,6 +43,11 @@
       `  <desc>Origin top-left, Y down, units ${unit || 'px'}. Same frame as the MapNC heightmap PNG.</desc>`,
     ];
     if (o.border) lines.push(`  <rect id="job-border" x="0" y="0" width="${num(w)}" height="${num(h)}" fill="none" stroke="#2563eb" stroke-width="${num(sw / 4)}"/>`);
+    if (o.marks) {
+      lines.push(`  <g id="corner-marks" fill="none" stroke="#2563eb" stroke-width="${num(sw / 2)}" stroke-linejoin="miter" stroke-linecap="butt">`);
+      for (const seg of cornerMarks(w, h)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
+      lines.push('  </g>');
+    }
     lines.push(`  <g id="route" fill="none" stroke="#e11d48" stroke-width="${num(sw)}" stroke-linejoin="round" stroke-linecap="round">`);
     for (const seg of polylines(track, bounds, W, H, o.mmPerPx)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
     lines.push('  </g>', '</svg>', '');
@@ -39,7 +56,7 @@
 
   /**
    * ASCII DXF, AutoCAD R12 (AC1009): the most widely read dialect. Layers: ROUTE (open polylines) and, optionally,
-   * JOB_BORDER (a closed rectangle of the heightmap's extent). Y is flipped so the origin is bottom-left.
+   * JOB_BORDER (a closed rectangle of the heightmap's extent) and CORNER_MARKS (four L brackets at its corners). Y is flipped so the origin is bottom-left.
    */
   function toDxf(track, bounds, W, H, opts) {
     const o = opts || {}, k = o.mmPerPx > 0 ? o.mmPerPx : 1;
@@ -49,9 +66,10 @@
     g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(0, 'ENDSEC');
     g(0, 'SECTION'); g(2, 'TABLES');
     g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1); g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0); g(0, 'ENDTAB');
-    g(0, 'TABLE'); g(2, 'LAYER'); g(70, o.border ? 2 : 1);
+    g(0, 'TABLE'); g(2, 'LAYER'); g(70, 1 + (o.border ? 1 : 0) + (o.marks ? 1 : 0));
     g(0, 'LAYER'); g(2, 'ROUTE'); g(70, 0); g(62, 1); g(6, 'CONTINUOUS');
     if (o.border) { g(0, 'LAYER'); g(2, 'JOB_BORDER'); g(70, 0); g(62, 5); g(6, 'CONTINUOUS'); }
+    if (o.marks) { g(0, 'LAYER'); g(2, 'CORNER_MARKS'); g(70, 0); g(62, 5); g(6, 'CONTINUOUS'); }
     g(0, 'ENDTAB'); g(0, 'ENDSEC');
     g(0, 'SECTION'); g(2, 'ENTITIES');
     const poly = (layer, pts, closed) => {
@@ -60,12 +78,13 @@
       g(0, 'SEQEND'); g(8, layer);
     };
     if (o.border) poly('JOB_BORDER', [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], true);
+    if (o.marks) for (const seg of cornerMarks(w, h)) poly('CORNER_MARKS', seg, false);
     for (const seg of polylines(track, bounds, W, H, o.mmPerPx)) poly('ROUTE', seg, false);
     g(0, 'ENDSEC'); g(0, 'EOF');
     return out.join('\n') + '\n';
   }
 
-  const api = { toSvg, toDxf, polylines };
+  const api = { toSvg, toDxf, polylines, cornerMarks };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCVector = api;
 })(typeof self !== 'undefined' ? self : this);

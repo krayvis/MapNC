@@ -1214,7 +1214,7 @@
     const o = {
       mmPerPx: mm ? mm / Math.max(grid.W, grid.H) : 0,
       lineWidth: mm ? lineWidthM() * (mm / longM) : 0,     // only how thick the SVG line looks; CAM uses the centre line
-      border: $('vec-border').checked, title: track.name || 'MapNC route',
+      border: $('vec-border').checked, marks: $('vec-marks').checked, title: track.name || 'MapNC route',
     };
     const text = kind === 'svg' ? Vec.toSvg(track, grid.bounds, grid.W, grid.H, o) : Vec.toDxf(track, grid.bounds, grid.W, grid.H, o);
     const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });

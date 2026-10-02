@@ -249,6 +249,8 @@
           <div class="row"><button id="export-route-btn" type="button">Export route layer (PNG)</button></div>
           <p class="hint">Transparent PNG with a red line of the width set under Heightmap → Route (flat profile), framed exactly like the heightmap. A mostly empty image compresses to almost nothing, and it is drawn a strip at a time, so even very large sizes are fine to export (but your CAD/CAM or image editor must hold the whole bitmap to open it).</p>
           <label class="inline"><input type="checkbox" id="vec-border" checked> Include a job-border rectangle</label>
+          <label class="inline"><input type="checkbox" id="vec-marks" checked> Include corner marks (L brackets at the four corners)</label>
+          <p class="hint">Select the route together with the border or corner marks and scale the group: the border or marks span exactly the heightmap's extent, so scale that group to the heightmap's width and height (keep the aspect ratio locked), then delete them.</p>
           <div class="row">
             <button id="export-svg-btn" type="button">Export SVG</button>
             <button id="export-dxf-btn" type="button">Export DXF</button>

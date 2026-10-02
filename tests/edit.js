@@ -105,7 +105,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('main sidebar summarises the manual edits', /Manual edits: 1 change/.test(await pg.locator('#edit-summary').innerText()), await pg.locator('#edit-summary').innerText());
   if (!(await pg.locator('#export-dxf-btn').isVisible())) await pg.click('summary:has-text("Export")');
   const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#export-dxf-btn')]); const dxfPath = S + '/edit.dxf'; await dl.saveAs(dxfPath);
-  const nv = (fs.readFileSync(dxfPath, 'utf8').match(/\nVERTEX\n/g) || []).length - 4;   // minus the 4 border corners
+  const nv = (fs.readFileSync(dxfPath, 'utf8').match(/\nVERTEX\n/g) || []).length - 4 - 12;   // minus the 4 border corners and the 12 corner-mark points
   check('DXF export has the edited vertex count', nv === nE, `${nv} vs ${nE}`);
   await pg.click('#edit-toggle');
 
