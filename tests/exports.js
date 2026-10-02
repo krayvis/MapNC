@@ -34,6 +34,9 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.click('summary:has-text("Clean up")'); await pg.click('#clean-suggest'); await pg.waitForTimeout(400);
   files.dxfClean = await dl('#export-dxf-btn', 'clean.dxf');
   await pg.click('#clean-reset'); await pg.waitForTimeout(300);
+  await pg.check('#spline-on'); files.svgSpline = await dl('#export-svg-btn', 'spline.svg'); await pg.uncheck('#spline-on');
+  const fsz = (f) => require('fs').statSync(f.out).size;
+  check('spline changes the SVG route', fsz(files.svgSpline) !== fsz(files.svg), fsz(files.svg) + ' -> ' + fsz(files.svgSpline) + ' bytes');
 
   // -- route layer PNG at several sizes
   await pg.click('#tab-png');

@@ -67,4 +67,18 @@ check('cleanTrack: largest shift reported and sensible', r.stats.maxShiftM > 5 &
 // ground-truth closeness after full clean
 const cl = r.track.segments[0].map(p => ({ x: (p.lon - lon0) * kx, y: (p.lat - lat0) * ky }));
 check('cleaned path hugs the true path', rms(cl) < 3, 'rms ' + rms(cl).toFixed(2) + ' m (raw noisy ' + rms(noisy).toFixed(2) + ')');
+
+// spline fit: passes through every point, stays close to a circle, straight runs stay light
+{
+  const R = 100, ctrl = []; for (let i = 0; i <= 12; i++) { const a = i / 12 * Math.PI; ctrl.push({ lat: 40 + R * Math.sin(a) / 110574, lon: -120 + R * Math.cos(a) / (111320 * Math.cos(40 * Math.PI / 180)) }); }
+  const sp = T.splineTrack(T.makeTrack('c', [ctrl]), 0.5).segments[0];
+  const near = (p) => Math.min(...sp.map((q) => Math.hypot((q.lat - p.lat) * 110574, (q.lon - p.lon) * 111320 * Math.cos(40 * Math.PI / 180))));
+  check('spline passes through every control point', ctrl.every((p) => near(p) < 0.01));
+  const radial = sp.map((q) => Math.hypot((q.lat - 40) * 110574, (q.lon + 120) * 111320 * Math.cos(40 * Math.PI / 180)));
+  check('spline of a circle arc stays within 1 m of the circle', Math.max(...radial.map((r) => Math.abs(r - R))) < 1, Math.max(...radial.map((r) => Math.abs(r - R))).toFixed(2));
+  check('spline adds points on bends', sp.length > ctrl.length);
+  const line = T.makeTrack('l', [[0, 1, 2, 3].map((i) => ({ lat: 40 + i * 0.0001, lon: -120 }))]);
+  check('spline of a straight line adds no points', T.splineTrack(line, 0.5).segments[0].length === 4);
+  check('spline with fewer than 3 points is unchanged', T.splineTrack(T.makeTrack('s', [[{ lat: 40, lon: -120 }, { lat: 40.001, lon: -120 }]]), 0.5).segments[0].length === 2);
+}
 console.log(fails.length ? 'FAILED: ' + fails.join('; ') : 'all clean-up checks pass');

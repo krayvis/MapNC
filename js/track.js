@@ -233,6 +233,42 @@
     return pts.filter((_, i) => keep[i]);
   }
 
+  /**
+   * Centripetal Catmull-Rom spline through every point (it passes exactly through each one, and does not loop or
+   * overshoot at uneven spacing). Each span is flattened into straight pieces so the curve is off by about `tol`
+   * metres at most: straight stretches stay a single piece, tight bends get more. The ends keep their direction.
+   */
+  function splineFit(pts, tol) {
+    const P = pts.filter((p, i) => i === 0 || dist(p, pts[i - 1]) > 1e-6);
+    if (P.length < 3) return P;
+    const t = Math.max(0.01, tol || 0.5), n = P.length;
+    const at = (i) => (i < 0 ? { x: 2 * P[0].x - P[1].x, y: 2 * P[0].y - P[1].y }
+      : i > n - 1 ? { x: 2 * P[n - 1].x - P[n - 2].x, y: 2 * P[n - 1].y - P[n - 2].y } : P[i]);
+    const knot = (a, b) => Math.sqrt(dist(a, b)) || 1e-6;       // alpha = 0.5
+    const out = [P[0]];
+    for (let i = 0; i < n - 1; i++) {
+      const p0 = at(i - 1), p1 = P[i], p2 = P[i + 1], p3 = at(i + 2);
+      const t0 = 0, t1 = t0 + knot(p0, p1), t2 = t1 + knot(p1, p2), t3 = t2 + knot(p2, p3);
+      const ev = (u) => {
+        const tt = t1 + (t2 - t1) * u, lerp = (a, b, ta, tb) => ({ x: ((tb - tt) * a.x + (tt - ta) * b.x) / (tb - ta), y: ((tb - tt) * a.y + (tt - ta) * b.y) / (tb - ta) });
+        const a1 = lerp(p0, p1, t0, t1), a2 = lerp(p1, p2, t1, t2), a3 = lerp(p2, p3, t2, t3);
+        const b1 = lerp(a1, a2, t0, t2), b2 = lerp(a2, a3, t1, t3);
+        return lerp(b1, b2, t1, t2);
+      };
+      const m = ev(0.5), sag = Math.hypot(m.x - (p1.x + p2.x) / 2, m.y - (p1.y + p2.y) / 2);
+      const k = Math.min(64, Math.max(1, Math.ceil(Math.sqrt(sag / t))));   // flattening error shrinks as 1/k^2
+      for (let j = 1; j < k; j++) out.push(ev(j / k));
+      out.push(p2);
+    }
+    return out;
+  }
+
+  /** The track with a spline fitted through every point of every segment (tol in metres). */
+  function splineTrack(track, tolM) {
+    const f = localFrame(track);
+    return makeTrack(track.name, track.segments.map((seg) => splineFit(seg.map((p) => toXY(p, f)), tolM).map((q) => toLL(q, f))));
+  }
+
   /** Largest distance from (a sample of) the original vertices to the cleaned polylines, in metres. */
   function maxShift(orig, cleaned) {
     const cap = 2000, stride = Math.max(1, Math.ceil(orig.reduce((n, s) => n + s.length, 0) / cap));
@@ -413,7 +449,7 @@
     };
   }
 
-  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
+  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, splineTrack, splineFit, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCTrack = api;
 })(typeof self !== 'undefined' ? self : this);

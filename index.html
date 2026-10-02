@@ -95,7 +95,7 @@
     <details class="pane" id="pane-clean" hidden>
       <summary><span class="step">2</span> Clean up &amp; edit route</summary>
       <div class="pane-body">
-        <p class="hint">Experiment with a noisy tracker. The original track is the dashed grey line on the map; the cleaned one is red. Steps run in the order below, each is optional, and nothing is saved back to your file.</p>
+        <p class="hint">Experiment with a noisy tracker. The original track is the dashed grey line on the map; the cleaned one is red. Each step is optional, and nothing is saved back to your file.</p>
         <label class="inline"><input type="checkbox" id="clean-spikes"> Remove GPS spikes</label>
         <label class="field">Spike size (m)
           <input id="clean-spike-m" type="number" min="1" step="1" value="20">
@@ -105,14 +105,11 @@
           <input id="clean-spacing" type="number" min="0" step="0.5" value="0">
         </label>
         <p class="hint">Removes the cluster of jittering points from standing still.</p>
-        <label class="field">Smoothing (m, 0 = off)
-          <input id="clean-smooth" type="number" min="0" step="1" value="0">
+        <label class="inline"><input type="checkbox" id="spline-on"> Fit a smooth spline through the points</label>
+        <label class="field" id="spline-tol-wrap" hidden>Curve accuracy (m)
+          <input id="spline-tol" type="number" min="0.05" step="0.1" value="0.5">
         </label>
-        <p class="hint">Averages the path over roughly this distance. Ends stay put; tight corners get rounded.</p>
-        <label class="field">Simplify tolerance (m, 0 = off)
-          <input id="clean-simplify" type="number" min="0" step="0.5" value="0">
-        </label>
-        <p class="hint">Trims points that deviate from a straight line by less than this.</p>
+        <p class="hint">Draws a smooth curve that passes through every point, on the map, the preview and all exports. Remove stray points by hand first (Edit points on the map), since the curve follows each one. The accuracy is how far the straight pieces approximating the curve may stray from it; smaller is smoother and a heavier file. Not affected by the edit lock.</p>
         <div class="row">
           <button id="clean-suggest" type="button">Suggested settings</button>
           <button id="clean-reset" type="button">Reset</button>

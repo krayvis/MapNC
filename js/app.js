@@ -412,6 +412,12 @@
   let trackLayer = null;   // Leaflet polyline group
   let widthTouched = false; // true once the user edits the line width, so a re-fit won't overwrite it
 
+  /** The route as drawn and exported: the points themselves, or a spline fitted through them when that is switched on. */
+  function shown() {
+    if (!track || !$('spline-on').checked) return track;
+    try { return Track.splineTrack(track, parseFloat($('spline-tol').value) || 0.5); } catch (e) { return track; }
+  }
+
   function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
 
   const ll = (t) => t.segments.map((seg) => seg.map((p) => [p.lat, p.lon]));
@@ -435,7 +441,7 @@
   function showTrack() {
     if (trackLayer) trackLayer.remove();
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
-    trackLayer = L.polyline(ll(track), { color: '#e11d48', weight: 3, interactive: false }).addTo(map);
+    trackLayer = L.polyline(ll(shown()), { color: '#e11d48', weight: 3, interactive: false }).addTo(map);
     $('track-info').textContent = trackSummary();
     $('track-info').hidden = false;
     $('track-fit').hidden = false;
@@ -451,7 +457,7 @@
   const num = (id) => Math.max(0, parseFloat($(id).value) || 0);
   const cleanOpts = () => ({
     spikeM: $('clean-spikes').checked ? num('clean-spike-m') : 0,
-    spacingM: num('clean-spacing'), smoothM: num('clean-smooth'), simplifyM: num('clean-simplify'),
+    spacingM: num('clean-spacing'),
   });
 
   function applyClean() {
@@ -461,7 +467,7 @@
     cleanedTrack = result.track;
     track = editTrack || cleanedTrack;
     const st = lastCleanStats = result.stats;
-    trackLayer.setLatLngs(ll(track));
+    trackLayer.setLatLngs(ll(shown()));
     syncRawLayer();
     $('clean-points').textContent = st.changed ? st.pointsBefore + ' → ' + st.pointsAfter : st.pointsBefore + ' (unchanged)';
     $('clean-length').textContent = st.changed ? st.lengthBeforeKm.toFixed(2) + ' → ' + st.lengthAfterKm.toFixed(2) + ' km' : st.lengthBeforeKm.toFixed(2) + ' km';
@@ -473,14 +479,24 @@
 
   let cleanTimer = null;
   const scheduleClean = () => { clearTimeout(cleanTimer); cleanTimer = setTimeout(applyClean, 150); };
-  ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-smooth', 'clean-simplify'].forEach((id) => $(id).addEventListener('input', scheduleClean));
-  function setCleanInputs(spikes, spacing, smooth, simplify) {
+  ['clean-spikes', 'clean-spike-m', 'clean-spacing'].forEach((id) => $(id).addEventListener('input', scheduleClean));
+  function setCleanInputs(spikes, spacing) {
     $('clean-spikes').checked = spikes > 0;
     $('clean-spike-m').value = spikes > 0 ? spikes : 20;
-    $('clean-spacing').value = spacing; $('clean-smooth').value = smooth; $('clean-simplify').value = simplify;
+    $('clean-spacing').value = spacing;
   }
-  $('clean-suggest').addEventListener('click', () => { setCleanInputs(20, 3, 5, 2); applyClean(); });
-  $('clean-reset').addEventListener('click', () => { setCleanInputs(0, 0, 0, 0); applyClean(); });
+  function splineChanged() {
+    $('spline-tol-wrap').hidden = !$('spline-on').checked;
+    if (!track) return;
+    trackLayer.setLatLngs(ll(shown()));
+    syncRawLayer();
+    if (elevation && grey) drawPreview();
+    updateRouteExportInfo();
+  }
+  $('spline-on').addEventListener('change', splineChanged);
+  $('spline-tol').addEventListener('input', splineChanged);
+  $('clean-suggest').addEventListener('click', () => { setCleanInputs(20, 3); applyClean(); });
+  $('clean-reset').addEventListener('click', () => { setCleanInputs(0, 0); applyClean(); });
 
   function fitToTrack() {
     const margin = Math.max(0, parseFloat($('track-margin').value) || 0) / 100;
@@ -505,7 +521,7 @@
     }
     resetEditState();
     track = rawTrack;
-    setCleanInputs(0, 0, 0, 0);
+    setCleanInputs(0, 0);
     widthTouched = false;
     showTrack();
     applyClean();
@@ -724,7 +740,7 @@
       ctx.strokeStyle = '#e11d48';
       ctx.lineWidth = 2 * e.width / (c.clientWidth || 300);
       ctx.lineJoin = ctx.lineCap = 'round';
-      for (const seg of Track.toPixels(track, e.bounds, e.width, e.height)) {
+      for (const seg of Track.toPixels(shown(), e.bounds, e.width, e.height)) {
         ctx.beginPath();
         seg.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
         ctx.stroke();
@@ -880,7 +896,7 @@
 
   /** After the route changed for good (drop, delete, undo, redo): redraw everything that depends on it. */
   function commitTrackChange() {
-    trackLayer.setLatLngs(ll(track));
+    trackLayer.setLatLngs(ll(shown()));
     syncRawLayer();
     $('track-info').textContent = trackSummary();
     drawHandles();
@@ -919,7 +935,7 @@
     }
     const ll2 = map.containerPointToLatLng([cp.x + d.offset.x, cp.y + d.offset.y]);
     track.segments[d.target.seg][d.target.idx] = { lat: ll2.lat, lon: ll2.lng };
-    trackLayer.setLatLngs(ll(track));
+    trackLayer.setLatLngs(ll(shown()));
     const m = handleMarkers.get(hkey(d.target.seg, d.target.idx));
     if (m) m.setLatLng(ll2);
   }
@@ -1026,7 +1042,7 @@
   /** Keep every control that depends on the editing state in step with it. */
   function refreshEditUi() {
     const locked = !!editTrack, n = edit.undo.length;
-    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-smooth', 'clean-simplify', 'clean-suggest', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
+    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-suggest', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
     // main sidebar: a short summary and the way to unlock
     $('edit-summary').hidden = !locked;
     $('edit-summary').textContent = locked ? 'Manual edits: ' + n + ' change' + (n === 1 ? '' : 's') + '. The settings above are locked until you discard them.' : '';
@@ -1156,7 +1172,7 @@
     btn.textContent = 'Cancel';
     try {
       const rowsPerBand = Math.max(1, Math.floor(4e6 / d.W));           // about 4 M pixels per strip
-      const br = Track.createBandRasterizer(track, d.bounds, d.W, d.H, lineWidthM() / 2 / d.pm, 'uniform', rowsPerBand);
+      const br = Track.createBandRasterizer(shown(), d.bounds, d.W, d.H, lineWidthM() / 2 / d.pm, 'uniform', rowsPerBand);
       const cover = new Float32Array(d.W * rowsPerBand), rgba = new Uint8Array(d.W * rowsPerBand * 4);
       for (let i = 0; i < d.W * rowsPerBand; i++) { rgba[i * 4] = ROUTE_RGB[0]; rgba[i * 4 + 1] = ROUTE_RGB[1]; rgba[i * 4 + 2] = ROUTE_RGB[2]; }
       const mm = carveLongMm(), b = d.bounds;
@@ -1192,7 +1208,7 @@
       lineWidth: mm ? lineWidthM() * (mm / longM) : 0,     // only how thick the SVG line looks; CAM uses the centre line
       border: $('vec-border').checked, marks: $('vec-marks').checked, title: track.name || 'MapNC route',
     };
-    const text = kind === 'svg' ? Vec.toSvg(track, grid.bounds, grid.W, grid.H, o) : Vec.toDxf(track, grid.bounds, grid.W, grid.H, o);
+    const text = kind === 'svg' ? Vec.toSvg(shown(), grid.bounds, grid.W, grid.H, o) : Vec.toDxf(shown(), grid.bounds, grid.W, grid.H, o);
     const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });
     routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_route.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').');
   }

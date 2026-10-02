@@ -31,4 +31,4 @@ Unsorted, unevaluated.
 - Cross-section / profile view along the route.
 - Sea-level clamp (flatten below 0 m so water is a flat pool).
 - Read the heightmapper and unrealheightmap projects for ideas and pitfalls.
-- **Smooth (spline) route.** Decided: smoothing applies to the exports as well as the map view. A toggle fits a smooth curve (e.g. Catmull-Rom) through the cleaned route; the map, PNG layer, SVG and DXF all use it. Note the existing clean-up step already smooths and simplifies; decide whether this is a separate toggle or a mode of that.
+- **Spline polish.** The spline fit is built (step 2). Possible follow-ups: show the control points' polyline faintly under the curve, a smoothing-spline mode that does not pass through noisy points exactly.

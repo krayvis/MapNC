@@ -28,10 +28,21 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
 
   await pg.click('#clean-suggest'); await pg.waitForTimeout(500);
   const pts = await txt('clean-points'); const [a, c] = pts.split('→').map(s => parseInt(s));
-  check('suggested settings cut the point count a lot', c < a / 3, pts);
+  check('suggested settings cut the point count', c < a * 0.7, pts);
   check('length + shift reported', /→/.test(await txt('clean-length')) && /m from the original/.test(await txt('clean-shift')), `${await txt('clean-length')} | ${await txt('clean-shift')}`);
   check('original shown dashed under the cleaned line', (await paths()) === p0 + 1);
   check('cleaning leaves the heightmap untouched', (await sum()) === base);
+  // spline fit: display/export only, the editable points stay put
+  const pathD = () => pg.evaluate(() => [...document.querySelectorAll('.leaflet-overlay-pane path')].map((e) => e.getAttribute('d') || '').join('|').length);
+  const ctrlN = () => pg.evaluate(() => window.MapNC.track().segments.reduce((n, s) => n + s.length, 0));
+  const d0 = await pathD(), n0 = await ctrlN();
+  check('accuracy field hidden until spline is on', !(await pg.locator('#spline-tol-wrap').isVisible()));
+  await pg.check('#spline-on'); await pg.waitForTimeout(400);
+  check('accuracy field shown', await pg.locator('#spline-tol-wrap').isVisible());
+  check('spline redraws the map line', (await pathD()) !== d0);
+  check('spline leaves the editable points alone', (await ctrlN()) === n0);
+  await pg.uncheck('#spline-on'); await pg.waitForTimeout(400);
+  check('spline off restores the line', (await pathD()) === d0);
   check('no elevation reload from cleaning', reqs === reqs0, `${reqs - reqs0} new requests`);
   check('track summary follows the cleaned track', new RegExp(c + ' points').test(await txt('track-info')), await txt('track-info'));
 
@@ -40,7 +51,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('reset removes the dashed original', (await paths()) === p0);
 
   // each control on its own
-  for (const [id, val] of [['clean-smooth', '8'], ['clean-simplify', '4'], ['clean-spacing', '6']]) {
+  for (const [id, val] of [['clean-spacing', '6']]) {
     await pg.fill('#' + id, val); await pg.waitForTimeout(400);
     check(`${id} = ${val} alone changes the route`, /→/.test(await txt('clean-points')) || (await sum()) !== base, await txt('clean-points'));
     await pg.fill('#' + id, '0'); await pg.waitForTimeout(400);
@@ -50,7 +61,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   // noisy file with injected spikes
   await pg.setInputFiles('#track-file', S + '/noisy.gpx'); await pg.waitForFunction(() => /Noisy sample/.test(document.getElementById('track-info').textContent));
   await ready();
-  check('loading a new route resets the clean-up settings', !(await pg.locator('#clean-spikes').isChecked()) && (await pg.inputValue('#clean-smooth')) === '0');
+  check('loading a new route resets the clean-up settings', !(await pg.locator('#clean-spikes').isChecked()) && (await pg.inputValue('#clean-spacing')) === '0');
   await pg.check('#clean-spikes'); await pg.fill('#clean-spike-m', '25'); await pg.waitForTimeout(500);
   const sp = parseInt(await txt('clean-spikes-n')); check('spike removal reports the injected spikes (46 injected)', sp >= 40 && sp <= 60, 'removed ' + sp);
   console.log('   ', await txt('clean-points'), '|', await txt('clean-shift'));
