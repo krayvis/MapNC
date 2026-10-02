@@ -6,7 +6,7 @@ Things we may do, not things we are doing. Move an item to **Next** when it is a
 
 Soon, in rough priority order.
 
-- **Lake flatten in the heightmap.** Optional: pool lakes to a flat level using the OSM lake outlines (the outlines already export as vectors). Decided: flat water only, no carved depth. Level per lake = median of the DEM inside its outline (lakes in one region differ by hundreds of metres, so never a global level); skip lakes whose DEM is already flat. Case study (Sierra Buttes sample, 3DEP): the big lakes are already hydro-flattened (SD 0.00 m), only small ponds and wet meadows are noisy (0.3 to 0.7 m), so the gain is small on 3DEP. Measure the Terrarium fallback before building; it is likely where this matters.
+- **Lake flatten in the heightmap.** Optional: pool lakes to a flat level using the OSM lake outlines (the outlines already export as vectors). Decided: flat water only, no carved depth. Level per lake = median of the DEM inside its outline (lakes in one region differ by hundreds of metres, so never a global level); skip lakes whose DEM is already flat. Case study (Sierra Buttes sample, 3DEP): the big lakes are already hydro-flattened (SD 0.00 m), only small ponds and wet meadows are noisy (0.3 to 0.7 m), so the gain is small on 3DEP. Terrarium measured on the same lakes (z13, ~15 m/px): the big lakes are nearly flat there too (SD 0.04 to 0.15 m, 20 to 12 ha), and sit about 6 to 7 m above 3DEP (different datum/vintage). Small ponds and meadows are noisier (SD 1.3 to 2.9 m, up to 13 m range), though those blobs were picked from 3DEP so they include shore pixels. Verdict: low priority; the visible gain is small ponds only. Worth doing only if it comes cheap after other work.
 
 ## Later
 
