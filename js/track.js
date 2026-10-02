@@ -105,6 +105,184 @@
     return km;
   }
 
+
+  // ---- clean-up: spikes, spacing, smoothing, simplification ------------------------------------
+  // The track is treated as a polyline in a local metric frame (metres east/north of the track's centre), so every
+  // threshold below is in real metres. No timestamps are needed. The steps run in this order, each one optional:
+  //   1. spikes     points (or runs of up to 3) that jump far off the path and come straight back are dropped
+  //   2. spacing    points closer than a minimum distance to the last kept point are dropped (standing-still jitter)
+  //   3. smoothing  Gaussian average along arc length (resampled evenly first, so point density does not bias it);
+  //                 the two ends stay exactly where they were
+  //   4. simplify   Ramer-Douglas-Peucker: drops nodes that deviate from the straight line by less than a tolerance
+
+  const M_LAT = 110574, M_LON = 111320;
+
+  function localFrame(track) {
+    const b = trackBounds(track), lat0 = (b.north + b.south) / 2, lon0 = (b.east + b.west) / 2;
+    return { lat0, lon0, kx: M_LON * Math.cos((lat0 * Math.PI) / 180), ky: M_LAT };
+  }
+  const toXY = (p, f) => ({ x: (p.lon - f.lon0) * f.kx, y: (p.lat - f.lat0) * f.ky });
+  const toLL = (q, f) => ({ lat: f.lat0 + q.y / f.ky, lon: f.lon0 + q.x / f.kx });
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  /** Distance from point p to the segment a-c. */
+  function distToSeg(p, a, c) {
+    const vx = c.x - a.x, vy = c.y - a.y, l2 = vx * vx + vy * vy;
+    if (!l2) return dist(p, a);
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / l2));
+    return Math.hypot(p.x - (a.x + t * vx), p.y - (a.y + t * vy));
+  }
+
+  /**
+   * A spike is a run of 1-3 points that all lie farther than `T` metres from the line between their neighbours, where
+   * that line is much shorter than the detour through the run (the path goes out and comes straight back). A real
+   * hairpin does not match: its neighbours are close to it, so it is never farther than `T` from them.
+   * The legs into and out of the run must also be well above the track's typical step: in a sparsely sampled track
+   * (a point every 100 m) a genuine turnaround looks just like a spike, so nothing is removed from such a track.
+   */
+  function removeSpikes(pts, T) {
+    let cur = pts, removed = 0;
+    if (cur.length < 3) return { pts: cur, removed };
+    const steps = [];
+    for (let i = 1; i < cur.length; i++) steps.push(dist(cur[i - 1], cur[i]));
+    steps.sort((u, v) => u - v);
+    const legMin = Math.max(T, 3 * steps[Math.floor(steps.length / 2)]);   // 3 x the median step
+    for (let pass = 0; pass < 6; pass++) {
+      const out = [cur[0]];
+      let i = 1, changed = false;
+      while (i < cur.length - 1) {
+        const a = out[out.length - 1];
+        let hit = 0;
+        for (let k = 3; k >= 1 && !hit; k--) {          // try the longest run first
+          const ci = i + k;
+          if (ci >= cur.length) continue;
+          const c = cur[ci];
+          let path = dist(a, cur[i]), ok = path > legMin && dist(cur[ci - 1], c) > legMin;
+          for (let j = i; ok && j < ci; j++) {
+            path += dist(cur[j], cur[j + 1]);
+            if (distToSeg(cur[j], a, c) <= T) { ok = false; break; }
+          }
+          if (ok && dist(a, c) < 0.6 * path) hit = k;
+        }
+        if (hit) { removed += hit; i += hit; changed = true; } else { out.push(cur[i]); i++; }
+      }
+      out.push(cur[cur.length - 1]);
+      cur = out;
+      if (!changed) break;
+    }
+    return { pts: cur, removed };
+  }
+
+  function minSpacing(pts, s) {
+    if (pts.length < 3) return pts;
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length - 1; i++) if (dist(out[out.length - 1], pts[i]) >= s) out.push(pts[i]);
+    out.push(pts[pts.length - 1]);
+    return out;
+  }
+
+  /** Points every `h` metres along the polyline (linear interpolation), ending exactly on the last point. */
+  function resample(pts, h) {
+    const out = [pts[0]];
+    let carry = 0;                                       // distance already travelled since the last output point
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], len = dist(a, b);
+      let pos = h - carry;
+      while (pos <= len) { const t = len ? pos / len : 0; out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }); pos += h; }
+      carry = len - (pos - h);
+    }
+    const last = pts[pts.length - 1];
+    if (dist(out[out.length - 1], last) > h * 0.25) out.push(last); else out[out.length - 1] = last;
+    return out;
+  }
+
+  function smooth(pts, sigma) {
+    if (pts.length < 3 || !(sigma > 0)) return pts;
+    const total = pts.reduce((n, p, i) => n + (i ? dist(pts[i - 1], p) : 0), 0);
+    const step = Math.max(sigma / 4, 0.5, total / 200000);       // sample spacing; bounded work for very long tracks
+    const r = resample(pts, step), n = r.length, m = Math.ceil((3 * sigma) / step);
+    const w = [];
+    let wsum = 0;
+    for (let k = -m; k <= m; k++) { const v = Math.exp(-((k * step) ** 2) / (2 * sigma * sigma)); w.push(v); wsum += v; }
+    // Odd (point) reflection about the end points: the smoothed curve keeps the ends exactly and their direction.
+    const at = (j) => {
+      if (j < 0) { const q = r[Math.min(-j, n - 1)]; return { x: 2 * r[0].x - q.x, y: 2 * r[0].y - q.y }; }
+      if (j > n - 1) { const q = r[Math.max(2 * (n - 1) - j, 0)]; return { x: 2 * r[n - 1].x - q.x, y: 2 * r[n - 1].y - q.y }; }
+      return r[j];
+    };
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      let x = 0, y = 0;
+      for (let k = -m; k <= m; k++) { const q = at(i + k), wk = w[k + m]; x += q.x * wk; y += q.y * wk; }
+      out[i] = { x: x / wsum, y: y / wsum };
+    }
+    return out;
+  }
+
+  function simplify(pts, tol) {
+    if (pts.length < 3 || !(tol > 0)) return pts;
+    const keep = new Uint8Array(pts.length);
+    keep[0] = keep[pts.length - 1] = 1;
+    const stack = [[0, pts.length - 1]];
+    while (stack.length) {
+      const [lo, hi] = stack.pop();
+      let far = -1, best = tol;
+      for (let i = lo + 1; i < hi; i++) { const d = distToSeg(pts[i], pts[lo], pts[hi]); if (d > best) { best = d; far = i; } }
+      if (far >= 0) { keep[far] = 1; stack.push([lo, far], [far, hi]); }
+    }
+    return pts.filter((_, i) => keep[i]);
+  }
+
+  /** Largest distance from (a sample of) the original vertices to the cleaned polylines, in metres. */
+  function maxShift(orig, cleaned) {
+    const cap = 2000, stride = Math.max(1, Math.ceil(orig.reduce((n, s) => n + s.length, 0) / cap));
+    let worst = 0;
+    for (const seg of orig) for (let i = 0; i < seg.length; i += stride) {
+      let best = Infinity;
+      for (const c of cleaned) for (let j = 1; j < c.length && best > worst; j++) best = Math.min(best, distToSeg(seg[i], c[j - 1], c[j]));
+      if (best < Infinity && best > worst) worst = best;
+    }
+    return worst;
+  }
+
+  /**
+   * Clean a track. opts: { spikeM, spacingM, smoothM, simplifyM }, each 0/undefined = skip that step.
+   * maxShiftM is measured from the original points that were not removed as spikes (a removed spike is not a "shift").
+   * Returns { track, stats: { pointsBefore, pointsAfter, spikes, lengthBeforeKm, lengthAfterKm, maxShiftM, changed } }.
+   */
+  function cleanTrack(track, opts) {
+    const o = opts || {};
+    const before = track.segments.reduce((n, s) => n + s.length, 0);
+    const f = localFrame(track);
+    const orig = track.segments.map((seg) => seg.map((p) => toXY(p, f)));
+    let spikes = 0;
+    const reference = [];                    // the original points that were not dropped as spikes
+    const cleaned = orig.map((seg) => {
+      let pts = seg;
+      if (o.spikeM > 0) { const r = removeSpikes(pts, o.spikeM); pts = r.pts; spikes += r.removed; }
+      reference.push(pts);
+      if (o.spacingM > 0) pts = minSpacing(pts, o.spacingM);
+      // Smoothing resamples evenly (finer than the input), so thin the result a little: it must never add points.
+      if (o.smoothM > 0) pts = simplify(smooth(pts, o.smoothM), Math.max(0.2, o.smoothM * 0.05));
+      if (o.simplifyM > 0) pts = simplify(pts, o.simplifyM);
+      return pts;
+    });
+    const changed = !!(o.spikeM > 0 || o.spacingM > 0 || o.smoothM > 0 || o.simplifyM > 0);
+    let out = track;
+    if (changed) {
+      try { out = makeTrack(track.name, cleaned.map((seg) => seg.map((q) => toLL(q, f)))); } catch (e) { out = track; }
+    }
+    const after = out.segments.reduce((n, s) => n + s.length, 0);
+    return {
+      track: out,
+      stats: {
+        pointsBefore: before, pointsAfter: after, spikes, changed,
+        lengthBeforeKm: trackLengthKm(track), lengthAfterKm: trackLengthKm(out),
+        maxShiftM: changed && out !== track ? maxShift(reference, out.segments.map((seg) => seg.map((p) => toXY(p, f)))) : 0,
+      },
+    };
+  }
+
   /** Track points in grid pixel coordinates (see frame note at the top). */
   function toPixels(track, bounds, W, H) {
     const sx = W / (bounds.east - bounds.west), sy = H / (bounds.north - bounds.south);
@@ -165,7 +343,7 @@
     }
   }
 
-  const api = { parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, makeTrack };
+  const api = { cleanTrack, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, makeTrack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCTrack = api;
 })(typeof self !== 'undefined' ? self : this);

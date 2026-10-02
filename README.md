@@ -8,21 +8,23 @@ Static site, no build step: plain HTML, CSS and JavaScript.
 
 ## Use it
 
-1. **Draw a rectangle** on the map. Drag a corner to resize (hold Shift, Ctrl/⌘ or Alt/Option to resize from the centre), or the arrows handle in the middle to move it (moving keeps the ground size). Optionally lock an **aspect ratio** (presets, custom, or "lock current shape", with a swap button for portrait/landscape). The ratio is measured on the ground, so it is what you carve. Or load a **GPX/TCX** route, which fits the region to the track plus a margin (grown to the locked ratio if you set one).
-2. Pick an **elevation source** or leave it on Auto: USGS 3DEP inside the US (about 10 m), AWS Terrain Tiles elsewhere. The panel shows the active source and its approximate resolution.
-3. Choose the **output resolution**: Auto (at least 2048 px on the long side, never below the source), a scale factor over the source, a long-side pixel count, or metres per pixel. Output finer than the source is smoothly (cubic) interpolated: no new terrain detail, but a smooth surface and route line in CAD/CAM software. Optionally enter your carve size to see mm per pixel; it is also stored in the PNG as its physical size.
-4. **Fetch elevation**, then choose the elevation range (auto or manual), vertical exaggeration, and 16-bit (default) or 8-bit output. The panel shows the range and the metres per grey level.
-5. With a route loaded, set the **line width** (metres on the ground), **raise/lower** amount (% of the grey range) and **profile** (rounded, uniform or V), then **Export PNG**. **Export route layer** saves the line alone as a transparent RGBA PNG on the same pixel grid.
+The sidebar is a set of collapsible panes (open/closed state is remembered). A strip at the top always shows what the elevation data is doing.
 
-The **Theme** button at the top cycles Auto (follows your system), Light and Dark; dark mode also darkens the map tiles with a CSS filter.
+1. **Route & region.** A sample route is loaded to start (**Clear route** removes it). Load your own **GPX/TCX** file and the region fits to the track plus a margin, or **draw a rectangle**. Drag a corner to resize (hold Shift, Ctrl/⌘ or Alt/Option to resize from the centre), or the arrows handle in the middle to move it (moving keeps the ground size). Optionally lock an **aspect ratio** (presets, custom, or "lock current shape", with a swap button for portrait/landscape). The ratio is measured on the ground, so it is what you carve.
+2. **Clean up route** (appears when a route is loaded). For noisy trackers: remove GPS spikes, collapse standing-still jitter (minimum point spacing), smooth, and simplify, each optional and in metres. The original shows as a dashed grey line under the cleaned red one, with point count, length and the largest shift reported. Your file is never modified.
+3. **Output size.** Auto (at least 2048 px on the long side, never below the source), a scale factor over the source, a long-side pixel count, or metres per pixel. Output finer than the source is smoothly (cubic) interpolated: no new terrain detail, but a smooth surface and route line in CAD/CAM software. Optionally enter your carve size to see mm per pixel; it is also stored in the PNG as its physical size.
+4. **Heightmap.** Elevation data loads **automatically** about 0.7 s after you stop changing the region, resolution or source (and never while you are mid-drag). Large outputs (over about 4 million samples) wait for a **Load elevation data** click instead. Choose the elevation range (auto or manual), vertical exaggeration, and invert. With a route loaded, set the **line width** (metres on the ground), **raise/lower** amount (% of the grey range) and **profile** (rounded, uniform or V). The preview shows the result live.
+5. **Export.** 16-bit greyscale PNG (default) or 8-bit. **Export route layer** saves the line alone as a transparent RGBA PNG on the same pixel grid.
+
+**Advanced** (collapsed): the elevation source (Auto picks USGS 3DEP inside the US, AWS Terrain Tiles elsewhere), the max output size, and a reload button.
 
 The preview is 8-bit for display only; the export keeps the bit depth you pick. Settings are also written into the PNG as text chunks (source, bounds, elevation window, metres per grey level, route settings).
 
-**Try it:** the **Load sample route** button loads a hike to the Sierra Buttes Fire Lookout (California), included in `samples/`.
-
-The map has a layer switcher (street, topographic, satellite, USGS topo). In dark mode, drawn maps are inverted and satellite imagery is only dimmed.
+The map has a layer switcher (street, topographic, satellite, USGS topo) and a **Theme** button (Auto / Light / Dark). In dark mode, drawn maps are inverted and satellite imagery is only dimmed.
 
 Size is capped at 4096 px per side by default (Advanced menu to change). Larger caps use a lot of memory.
+
+Add `?sample=off` to the address to start without the sample route.
 
 ## Deploy to GitHub Pages
 
@@ -43,7 +45,7 @@ To run it locally, serve the folder with any static server, for example `python3
 | `js/geo.js` | Region maths: ground size, source choice, Terrarium zoom, size cap |
 | `js/sources.js` | 3DEP and Terrarium fetchers, stitching, resampling to a ground-correct grid |
 | `js/heightmap.js` | Elevation to grey mapping, route burn, PNG encoder (16/8-bit and RGBA) |
-| `js/track.js` | GPX/TCX parsing and route rasterizing |
+| `js/track.js` | GPX/TCX parsing, route clean-up, route rasterizing |
 | `js/app.js` | Map, UI wiring |
 | `js/theme.js` | Light / dark / auto theme (loaded in `<head>` to avoid a flash) |
 | `samples/` | Sample GPX route |

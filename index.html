@@ -15,194 +15,245 @@
       <h1>MapNC</h1>
       <button id="theme-btn" type="button" class="theme-btn">Theme: Auto</button>
     </div>
-    <p class="lede">Select a region, get a greyscale heightmap. Everything runs in your browser; nothing is uploaded.</p>
+    <p class="lede">Pick a region (or load a route) and get a greyscale heightmap for CNC carving. Everything runs in your browser; nothing is uploaded.</p>
 
-    <section>
-      <h2>1. Region</h2>
-      <div class="row">
-        <button id="draw-btn" type="button">Draw rectangle</button>
-        <button id="clear-btn" type="button" disabled>Clear</button>
-      </div>
-      <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map.</p>
-      <p id="edit-hint" class="hint" hidden>Drag a corner to resize, or the arrows handle in the middle to move the whole rectangle. With a mouse, hold Shift, Ctrl/⌘ or Alt/Option while dragging to resize from the centre.</p>
-      <div class="field">
-        <label for="aspect-select">Aspect ratio (on the ground)</label>
-        <div class="row">
-          <select id="aspect-select">
-            <option value="free" selected>Free</option>
-            <option value="1:1">1:1 (square)</option>
-            <option value="5:4">5:4 (8×10, 16×20)</option>
-            <option value="4:3">4:3</option>
-            <option value="3:2">3:2 (6×4, 12×8)</option>
-            <option value="7:5">7:5 (5×7)</option>
-            <option value="16:9">16:9</option>
-            <option value="custom">Custom…</option>
-            <option value="current">Lock current shape</option>
-          </select>
-          <button id="aspect-swap" type="button" disabled title="Swap width and height (portrait / landscape)" aria-label="Swap width and height">⇄</button>
-        </div>
-        <div class="row" id="aspect-custom" hidden>
-          <input id="aspect-w" type="number" min="0.01" step="any" value="1" aria-label="Aspect width">
-          <span class="colon">:</span>
-          <input id="aspect-h" type="number" min="0.01" step="any" value="1" aria-label="Aspect height">
-        </div>
-      </div>
-      <dl id="region-info" class="info" hidden>
-        <dt>Size</dt><dd id="info-size">–</dd>
-        <dt>Aspect</dt><dd id="info-aspect">–</dd>
-        <dt>Corners</dt><dd id="info-corners">–</dd>
-        <dt>Output grid</dt><dd id="info-grid">–</dd>
-      </dl>
-      <p id="cap-warning" class="warning" hidden></p>
-    </section>
-
-    <section>
-      <h2>Route (optional)</h2>
-      <label class="field">GPX or TCX file
-        <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml">
-      </label>
-      <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it. A sample route is loaded to start; use <b>Clear route</b> to remove it.</p>
-      <button id="track-sample" type="button">Load sample route</button>
-      <p class="hint">Sample: a hike to the Sierra Buttes Fire Lookout, California (1.3 × 1.9 km, 3DEP coverage).</p>
-      <div class="row">
-        <label class="field">Margin (% each side)
-          <input id="track-margin" type="number" min="0" max="200" step="1" value="15">
-        </label>
-        <button id="track-fit" type="button" hidden>Re-fit region</button>
-        <button id="track-clear" type="button" hidden>Clear route</button>
-      </div>
-      <p id="track-info" class="hint" hidden></p>
-      <p id="track-error" class="warning" hidden></p>
-    </section>
-
-    <section>
-      <h2>2. Elevation source</h2>
-      <label class="field">Source
-        <select id="source-select">
-          <option value="auto" selected>Auto-detect</option>
-          <option value="3dep">USGS 3DEP (US)</option>
-          <option value="terrarium">AWS Terrain Tiles (global)</option>
-        </select>
-      </label>
-      <dl id="source-info" class="info" hidden>
-        <dt>Active</dt><dd id="info-source">–</dd>
-        <dt>Resolution</dt><dd id="info-res">–</dd>
-      </dl>
-    </section>
-
-    <section>
-      <h2>Output resolution</h2>
-      <label class="field">Pixel size
-        <select id="res-mode">
-          <option value="auto" selected>Auto (at least 2048 px long side, never below source)</option>
-          <option value="scale">Scale × source resolution</option>
-          <option value="pixels">Long side in pixels</option>
-          <option value="mpp">Metres per pixel</option>
-        </select>
-      </label>
-      <label class="field" id="res-value-wrap" hidden><span id="res-value-label">Scale (×)</span>
-        <input id="res-value" type="number" min="0.01" step="any" value="4">
-      </label>
-      <div class="field">
-        <label for="carve-size">Carve size, long side (optional)</label>
-        <div class="row">
-          <input id="carve-size" type="number" min="0" step="any" placeholder="e.g. 12">
-          <select id="carve-unit" aria-label="Carve size unit"><option value="in" selected>in</option><option value="mm">mm</option></select>
-        </div>
-      </div>
-      <dl id="out-info" class="info" hidden>
-        <dt>Pixel size</dt><dd id="out-px">–</dd>
-        <dt>On the carve</dt><dd id="out-carve">–</dd>
-      </dl>
-      <p class="hint">More pixels than the source has adds no real terrain detail, but gives CAD/CAM software a smooth surface and a smooth route line instead of visible steps. Keep 16-bit to avoid terracing. Entering the carve size also stores the real-world size in the PNG.</p>
-    </section>
-
-    <section>
-      <h2>3. Elevation data</h2>
-      <div class="row">
-        <button id="fetch-btn" type="button" disabled>Fetch elevation</button>
-        <button id="cancel-btn" type="button" hidden>Cancel</button>
-      </div>
+    <!-- Always visible: what the elevation data is doing. Loads on its own after the region settles. -->
+    <div id="data-strip" class="data-strip" role="status" aria-live="polite">
+      <p class="strip-line"><strong>Elevation</strong> <span id="status">Draw a region or load a route to begin.</span></p>
       <progress id="progress" max="1" value="0" hidden></progress>
-      <p id="status" class="hint" role="status"></p>
+      <div class="row">
+        <button id="fetch-btn" type="button" hidden>Load elevation data</button>
+        <button id="cancel-btn" type="button" hidden>Stop</button>
+      </div>
       <p id="fetch-error" class="warning" hidden></p>
       <dl id="result-info" class="info" hidden>
-        <dt>Elevation</dt><dd id="res-range">–</dd>
+        <dt>Range</dt><dd id="res-range">–</dd>
         <dt>No data</dt><dd id="res-nodata">–</dd>
       </dl>
-    </section>
+    </div>
 
-    <section id="hm-section" hidden>
-      <h2>4. Heightmap</h2>
-      <fieldset class="field">
-        <legend>Elevation range</legend>
-        <label class="inline"><input type="radio" name="range-mode" value="auto" checked> Auto (data min/max)</label>
-        <label class="inline"><input type="radio" name="range-mode" value="manual"> Manual</label>
-        <div class="row" id="manual-range" hidden>
-          <label class="field">Low (m)<input id="range-lo" type="number" step="any"></label>
-          <label class="field">High (m)<input id="range-hi" type="number" step="any"></label>
+    <details class="pane" id="pane-region" open>
+      <summary><span class="step">1</span> Route &amp; region</summary>
+      <div class="pane-body">
+        <h3>Route (optional)</h3>
+        <label class="field">GPX or TCX file
+          <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml">
+        </label>
+        <div class="row">
+          <button id="track-sample" type="button">Load sample route</button>
+          <button id="track-clear" type="button" hidden>Clear route</button>
         </div>
-      </fieldset>
-      <label class="field">Vertical exaggeration
-        <input id="exaggeration" type="number" min="0.1" max="50" step="0.1" value="1">
-      </label>
-      <label class="field">Bit depth
-        <select id="bits-select">
-          <option value="16" selected>16-bit greyscale PNG (default)</option>
-          <option value="8">8-bit greyscale PNG</option>
-        </select>
-      </label>
-      <label class="inline"><input type="checkbox" id="invert"> Invert (white = low)</label>
-      <dl class="info">
-        <dt>Window</dt><dd id="hm-window">–</dd>
-        <dt>Per grey level</dt><dd id="hm-level">–</dd>
-        <dt>Clipped</dt><dd id="hm-clip">–</dd>
-      </dl>
-      <div id="route-controls" hidden>
-        <h3>Route in heightmap</h3>
-        <label class="inline"><input type="checkbox" id="route-burn" checked> Burn route into heightmap</label>
-        <label class="field">Line width (m on the ground)
-          <input id="route-width" type="number" min="1" step="any">
+        <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it. A sample (Sierra Buttes Fire Lookout, California) is loaded to start.</p>
+        <div class="row">
+          <label class="field">Margin (% each side)
+            <input id="track-margin" type="number" min="0" max="200" step="1" value="15">
+          </label>
+          <button id="track-fit" type="button" hidden>Re-fit region</button>
+        </div>
+        <p id="track-info" class="hint" hidden></p>
+        <p id="track-error" class="warning" hidden></p>
+
+        <h3>Region</h3>
+        <div class="row">
+          <button id="draw-btn" type="button">Draw rectangle</button>
+          <button id="clear-btn" type="button" disabled>Clear</button>
+        </div>
+        <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map.</p>
+        <p id="edit-hint" class="hint" hidden>Drag a corner to resize, or the arrows handle in the middle to move the whole rectangle. With a mouse, hold Shift, Ctrl/⌘ or Alt/Option while dragging to resize from the centre.</p>
+        <div class="field">
+          <label for="aspect-select">Aspect ratio (on the ground)</label>
+          <div class="row">
+            <select id="aspect-select">
+              <option value="free" selected>Free</option>
+              <option value="1:1">1:1 (square)</option>
+              <option value="5:4">5:4 (8×10, 16×20)</option>
+              <option value="4:3">4:3</option>
+              <option value="3:2">3:2 (6×4, 12×8)</option>
+              <option value="7:5">7:5 (5×7)</option>
+              <option value="16:9">16:9</option>
+              <option value="custom">Custom…</option>
+              <option value="current">Lock current shape</option>
+            </select>
+            <button id="aspect-swap" type="button" disabled title="Swap width and height (portrait / landscape)" aria-label="Swap width and height">⇄</button>
+          </div>
+          <div class="row" id="aspect-custom" hidden>
+            <input id="aspect-w" type="number" min="0.01" step="any" value="1" aria-label="Aspect width">
+            <span class="colon">:</span>
+            <input id="aspect-h" type="number" min="0.01" step="any" value="1" aria-label="Aspect height">
+          </div>
+        </div>
+        <dl id="region-info" class="info" hidden>
+          <dt>Size</dt><dd id="info-size">–</dd>
+          <dt>Aspect</dt><dd id="info-aspect">–</dd>
+          <dt>Corners</dt><dd id="info-corners">–</dd>
+          <dt>Output grid</dt><dd id="info-grid">–</dd>
+        </dl>
+        <p id="cap-warning" class="warning" hidden></p>
+      </div>
+    </details>
+
+    <details class="pane" id="pane-clean" hidden>
+      <summary><span class="step">2</span> Clean up route</summary>
+      <div class="pane-body">
+        <p class="hint">Experiment with a noisy tracker. The original track is the dashed grey line on the map; the cleaned one is red. Steps run in the order below, each is optional, and nothing is saved back to your file.</p>
+        <label class="inline"><input type="checkbox" id="clean-spikes"> Remove GPS spikes</label>
+        <label class="field">Spike size (m)
+          <input id="clean-spike-m" type="number" min="1" step="1" value="20">
         </label>
-        <label class="field">Raise / lower (% of grey range)
-          <input id="route-amount" type="number" min="-100" max="100" step="0.5" value="-3">
+        <p class="hint">Drops points that jump farther than this off the path and straight back. Real hairpins are kept. Use a value well above your normal point spacing.</p>
+        <label class="field">Minimum point spacing (m, 0 = off)
+          <input id="clean-spacing" type="number" min="0" step="0.5" value="0">
         </label>
-        <p class="hint">Negative cuts a groove, positive raises a ridge. Applied to terrain height, before Invert.</p>
-        <label class="field">Profile
-          <select id="route-shape">
-            <option value="rounded" selected>Rounded (half-round section)</option>
-            <option value="uniform">Uniform (flat bottom, constant depth)</option>
-            <option value="v">V (tapers to a point)</option>
+        <p class="hint">Removes the cluster of jittering points from standing still.</p>
+        <label class="field">Smoothing (m, 0 = off)
+          <input id="clean-smooth" type="number" min="0" step="1" value="0">
+        </label>
+        <p class="hint">Averages the path over roughly this distance. Ends stay put; tight corners get rounded.</p>
+        <label class="field">Simplify tolerance (m, 0 = off)
+          <input id="clean-simplify" type="number" min="0" step="0.5" value="0">
+        </label>
+        <p class="hint">Trims points that deviate from a straight line by less than this.</p>
+        <div class="row">
+          <button id="clean-suggest" type="button">Suggested settings</button>
+          <button id="clean-reset" type="button">Reset</button>
+        </div>
+        <dl class="info">
+          <dt>Points</dt><dd id="clean-points">–</dd>
+          <dt>Length</dt><dd id="clean-length">–</dd>
+          <dt>Largest shift</dt><dd id="clean-shift">–</dd>
+          <dt>Spikes removed</dt><dd id="clean-spikes-n">–</dd>
+        </dl>
+      </div>
+    </details>
+
+    <details class="pane" id="pane-output">
+      <summary><span class="step">3</span> Output size</summary>
+      <div class="pane-body">
+        <label class="field">Pixel size
+          <select id="res-mode">
+            <option value="auto" selected>Auto (at least 2048 px long side, never below source)</option>
+            <option value="scale">Scale × source resolution</option>
+            <option value="pixels">Long side in pixels</option>
+            <option value="mpp">Metres per pixel</option>
           </select>
         </label>
-        <label class="inline"><input type="checkbox" id="route-guide" checked> Show route on preview</label>
-        <dl class="info">
-          <dt>Line width</dt><dd id="route-px">–</dd>
-          <dt>Depth / height</dt><dd id="route-depth">–</dd>
+        <label class="field" id="res-value-wrap" hidden><span id="res-value-label">Scale (×)</span>
+          <input id="res-value" type="number" min="0.01" step="any" value="4">
+        </label>
+        <div class="field">
+          <label for="carve-size">Carve size, long side (optional)</label>
+          <div class="row">
+            <input id="carve-size" type="number" min="0" step="any" placeholder="e.g. 12">
+            <select id="carve-unit" aria-label="Carve size unit"><option value="in" selected>in</option><option value="mm">mm</option></select>
+          </div>
+        </div>
+        <dl id="out-info" class="info" hidden>
+          <dt>Pixel size</dt><dd id="out-px">–</dd>
+          <dt>On the carve</dt><dd id="out-carve">–</dd>
         </dl>
-        <p id="route-warning" class="warning" hidden></p>
+        <p class="hint">More pixels than the source has adds no real terrain detail, but gives CAD/CAM software a smooth surface and a smooth route line instead of visible steps. Entering the carve size also stores the real-world size in the PNG.</p>
       </div>
-      <canvas id="preview"></canvas>
-      <p class="hint">Preview is 8-bit for display only; the export keeps the full bit depth you chose. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
-      <div class="row">
-        <button id="export-btn" type="button">Export PNG</button>
-        <button id="export-route-btn" type="button" hidden>Export route layer</button>
-      </div>
-      <p id="route-layer-hint" class="hint" hidden>The route layer is a transparent RGBA PNG at the same pixel size, with a red line of the width above (flat profile), for overlaying in an image editor.</p>
-      <p id="export-status" class="hint" role="status"></p>
-    </section>
+    </details>
 
-    <details class="advanced">
+    <details class="pane" id="pane-heightmap" open>
+      <summary><span class="step">4</span> Heightmap</summary>
+      <div class="pane-body">
+        <p id="hm-empty" class="hint">The heightmap appears here once elevation data has loaded.</p>
+        <div id="hm-section" hidden>
+          <fieldset class="field">
+            <legend>Elevation range</legend>
+            <label class="inline"><input type="radio" name="range-mode" value="auto" checked> Auto (data min/max)</label>
+            <label class="inline"><input type="radio" name="range-mode" value="manual"> Manual</label>
+            <div class="row" id="manual-range" hidden>
+              <label class="field">Low (m)<input id="range-lo" type="number" step="any"></label>
+              <label class="field">High (m)<input id="range-hi" type="number" step="any"></label>
+            </div>
+          </fieldset>
+          <label class="field">Vertical exaggeration
+            <input id="exaggeration" type="number" min="0.1" max="50" step="0.1" value="1">
+          </label>
+          <label class="inline"><input type="checkbox" id="invert"> Invert (white = low)</label>
+          <dl class="info">
+            <dt>Window</dt><dd id="hm-window">–</dd>
+            <dt>Per grey level</dt><dd id="hm-level">–</dd>
+            <dt>Clipped</dt><dd id="hm-clip">–</dd>
+          </dl>
+          <div id="route-controls" hidden>
+            <h3>Route in heightmap</h3>
+            <label class="inline"><input type="checkbox" id="route-burn" checked> Burn route into heightmap</label>
+            <label class="field">Line width (m on the ground)
+              <input id="route-width" type="number" min="1" step="any">
+            </label>
+            <label class="field">Raise / lower (% of grey range)
+              <input id="route-amount" type="number" min="-100" max="100" step="0.5" value="-3">
+            </label>
+            <p class="hint">Negative cuts a groove, positive raises a ridge. Applied to terrain height, before Invert.</p>
+            <label class="field">Profile
+              <select id="route-shape">
+                <option value="rounded" selected>Rounded (half-round section)</option>
+                <option value="uniform">Uniform (flat bottom, constant depth)</option>
+                <option value="v">V (tapers to a point)</option>
+              </select>
+            </label>
+            <label class="inline"><input type="checkbox" id="route-guide" checked> Show route on preview</label>
+            <dl class="info">
+              <dt>Line width</dt><dd id="route-px">–</dd>
+              <dt>Depth / height</dt><dd id="route-depth">–</dd>
+            </dl>
+            <p id="route-warning" class="warning" hidden></p>
+          </div>
+          <canvas id="preview"></canvas>
+          <p class="hint">Preview is 8-bit for display only. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
+        </div>
+      </div>
+    </details>
+
+    <details class="pane" id="pane-export" open>
+      <summary><span class="step">5</span> Export</summary>
+      <div class="pane-body">
+        <p id="export-empty" class="hint">Export is available once elevation data has loaded.</p>
+        <div id="export-section" hidden>
+          <label class="field">Bit depth
+            <select id="bits-select">
+              <option value="16" selected>16-bit greyscale PNG (default)</option>
+              <option value="8">8-bit greyscale PNG</option>
+            </select>
+          </label>
+          <div class="row">
+            <button id="export-btn" type="button">Export PNG</button>
+            <button id="export-route-btn" type="button" hidden>Export route layer</button>
+          </div>
+          <p id="route-layer-hint" class="hint" hidden>The route layer is a transparent RGBA PNG at the same pixel size, with a red line of the width above (flat profile), for overlaying in an image editor.</p>
+          <p id="export-status" class="hint" role="status"></p>
+        </div>
+      </div>
+    </details>
+
+    <details class="pane" id="pane-advanced">
       <summary>Advanced</summary>
-      <label class="field">Max output size
-        <select id="cap-select">
-          <option value="2048">2048 px per side</option>
-          <option value="4096" selected>4096 px per side (default)</option>
-          <option value="8192">8192 px per side</option>
-          <option value="16384">16384 px per side (may crash the tab)</option>
-        </select>
-      </label>
-      <p class="hint" id="cap-text"></p>
+      <div class="pane-body">
+        <label class="field">Elevation source
+          <select id="source-select">
+            <option value="auto" selected>Auto-detect</option>
+            <option value="3dep">USGS 3DEP (US)</option>
+            <option value="terrarium">AWS Terrain Tiles (global)</option>
+          </select>
+        </label>
+        <dl id="source-info" class="info" hidden>
+          <dt>Active</dt><dd id="info-source">–</dd>
+          <dt>Source data</dt><dd id="info-res">–</dd>
+        </dl>
+        <label class="field">Max output size
+          <select id="cap-select">
+            <option value="2048">2048 px per side</option>
+            <option value="4096" selected>4096 px per side (default)</option>
+            <option value="8192">8192 px per side</option>
+            <option value="16384">16384 px per side (may crash the tab)</option>
+          </select>
+        </label>
+        <p class="hint" id="cap-text"></p>
+        <button id="reload-btn" type="button">Reload elevation data</button>
+      </div>
     </details>
   </aside>
   <div id="map" aria-label="Map"></div>

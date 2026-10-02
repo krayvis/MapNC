@@ -61,6 +61,7 @@
     Geo.setMaxSide(Number($('cap-select').value));
     updateCapText();
     refresh();
+    scheduleAutoFetch();
   });
 
   // Holding Shift, Ctrl, Cmd or Alt/Option while dragging makes the rectangle resize from its centre (mouse only: touch has no keys).
@@ -97,6 +98,7 @@
   mapEl.addEventListener('pointerdown', (e) => {
     if (!drawing || activePointer !== null || e.button > 0) return;
     activePointer = e.pointerId;
+    beginInteract();
     mapEl.setPointerCapture(e.pointerId);
     anchor = map.mouseEventToLatLng(e);
     lastDrawPoint = anchor;
@@ -122,6 +124,7 @@
     anchor = null;
     if (bounds && (bounds.north - bounds.south < 1e-6 || bounds.east - bounds.west < 1e-6)) clearSelection(); // a click, not a drag
     setDrawing(false);
+    endInteract();
   }
   mapEl.addEventListener('pointerup', endDrag);
   mapEl.addEventListener('pointercancel', endDrag);
@@ -141,8 +144,9 @@
     $('source-info').hidden = true;
     $('cap-warning').hidden = true;
     $('draw-hint').hidden = false;
-    $('fetch-btn').disabled = true;
+    cancelFetch();
     resetResult();
+    scheduleAutoFetch();                   // no region: back to the starting message
   }
 
   function setBounds(b) {
@@ -156,6 +160,7 @@
     $('draw-hint').hidden = true;
     $('edit-hint').hidden = false;
     refresh();
+    scheduleAutoFetch();
   }
 
   // ---- handles: resize by corner, move by the centre handle ----------------------------------
@@ -206,9 +211,10 @@
         fixed = cornerLatLngs().find((x) => x.key === OPPOSITE[m._key]).ll;
         centre = Geo.centreOf(bounds);
         redoCornerDrag = step;
+        beginInteract();
       });
       m.on('drag', () => { raw = m.getLatLng(); step(); });
-      m.on('dragend', () => { redoCornerDrag = null; });
+      m.on('dragend', () => { redoCornerDrag = null; endInteract(); });
       return m;
     });
 
@@ -216,7 +222,8 @@
       draggable: true, zIndexOffset: 500,
       icon: L.divIcon({ className: '', html: '<div class="move-handle" role="button" aria-label="Move rectangle">' + MOVE_ICON + '</div>', iconSize: [0, 0] }),
     }).addTo(map);
-    moveHandle.on('dragstart', () => { moveStart = Object.assign({}, bounds); });
+    moveHandle.on('dragstart', () => { moveStart = Object.assign({}, bounds); beginInteract(); });
+    moveHandle.on('dragend', endInteract);
     moveHandle.on('drag', () => {
       const moved = Geo.moveBounds(moveStart, moveHandle.getLatLng());
       moveHandle.setLatLng(Geo.centreOf(moved));     // stays put if the move was clamped at the latitude limit
@@ -300,8 +307,9 @@
     if (d) { $('res-value').value = d.value; $('res-value-label').textContent = d.label; }
     resetResult();
     refresh();
+    scheduleAutoFetch();
   });
-  $('res-value').addEventListener('input', () => { resetResult(); refresh(); });
+  $('res-value').addEventListener('input', () => { resetResult(); refresh(); scheduleAutoFetch(); });
 
   /** Carve length (long side) in mm, or null when not entered. */
   function carveLongMm() {
@@ -360,31 +368,80 @@
           Geo.LIMITS.maxSide + ' px cap. Draw a smaller rectangle.';
     }
     rect.setStyle({ color: tooBig ? '#d92d20' : '#2563eb' });
-    $('fetch-btn').disabled = tooBig || fetching;
   }
 
   // ---- route track ------------------------------------------------------------------------
 
   const Track = window.MapNCTrack;
-  let track = null;        // parsed track: { name, segments }
+  let rawTrack = null;     // the track as loaded: { name, segments }
+  let track = null;        // the track in use: rawTrack after clean-up (the same object when nothing is enabled)
+  let rawLayer = null;     // the original, shown dashed under the cleaned line when clean-up changes it
+  let trackVersion = 0;    // bumps whenever `track` changes, so cached route weights are rebuilt
   let trackLayer = null;   // Leaflet polyline group
   let widthTouched = false; // true once the user edits the line width, so a re-fit won't overwrite it
 
   function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
 
+  const ll = (t) => t.segments.map((seg) => seg.map((p) => [p.lat, p.lon]));
+
+  function trackSummary() {
+    const pts = track.segments.reduce((n, s) => n + s.length, 0);
+    return (track.name ? track.name + ': ' : '') + Track.trackLengthKm(track).toFixed(1) + ' km, ' +
+      pts + ' points' + (track.segments.length > 1 ? ' in ' + track.segments.length + ' segments' : '') + '.';
+  }
+
   function showTrack() {
     if (trackLayer) trackLayer.remove();
-    trackLayer = L.polyline(track.segments.map((seg) => seg.map((p) => [p.lat, p.lon])), { color: '#e11d48', weight: 3, interactive: false }).addTo(map);
-    const pts = track.segments.reduce((n, s) => n + s.length, 0);
-    $('track-info').textContent = (track.name ? track.name + ': ' : '') + Track.trackLengthKm(track).toFixed(1) + ' km, ' +
-      pts + ' points' + (track.segments.length > 1 ? ' in ' + track.segments.length + ' segments' : '') + '.';
+    if (rawLayer) { rawLayer.remove(); rawLayer = null; }
+    trackLayer = L.polyline(ll(track), { color: '#e11d48', weight: 3, interactive: false }).addTo(map);
+    $('track-info').textContent = trackSummary();
     $('track-info').hidden = false;
     $('track-fit').hidden = false;
     $('track-clear').hidden = false;
     $('route-controls').hidden = false;
     $('export-route-btn').hidden = false;
     $('route-layer-hint').hidden = false;
+    $('pane-clean').hidden = false;
   }
+
+  // ---- route clean-up ----------------------------------------------------------------------
+
+  const num = (id) => Math.max(0, parseFloat($(id).value) || 0);
+  const cleanOpts = () => ({
+    spikeM: $('clean-spikes').checked ? num('clean-spike-m') : 0,
+    spacingM: num('clean-spacing'), smoothM: num('clean-smooth'), simplifyM: num('clean-simplify'),
+  });
+
+  function applyClean() {
+    if (!rawTrack) return;
+    let result;
+    try { result = Track.cleanTrack(rawTrack, cleanOpts()); } catch (err) { trackError('Clean-up failed: ' + err.message); return; }
+    track = result.track;
+    trackVersion++;
+    const st = result.stats;
+    trackLayer.setLatLngs(ll(track));
+    if (st.changed) {
+      if (!rawLayer) rawLayer = L.polyline(ll(rawTrack), { color: '#7b8794', weight: 2, dashArray: '4 5', opacity: .9, interactive: false }).addTo(map);
+      trackLayer.bringToFront();
+    } else if (rawLayer) { rawLayer.remove(); rawLayer = null; }
+    $('clean-points').textContent = st.changed ? st.pointsBefore + ' → ' + st.pointsAfter : st.pointsBefore + ' (unchanged)';
+    $('clean-length').textContent = st.changed ? st.lengthBeforeKm.toFixed(2) + ' → ' + st.lengthAfterKm.toFixed(2) + ' km' : st.lengthBeforeKm.toFixed(2) + ' km';
+    $('clean-shift').textContent = st.changed ? (st.maxShiftM < 10 ? st.maxShiftM.toFixed(1) : st.maxShiftM.toFixed(0)) + ' m from the original' : '–';
+    $('clean-spikes-n').textContent = $('clean-spikes').checked ? String(st.spikes) : '–';
+    $('track-info').textContent = trackSummary();
+    if (elevation) recompute();      // the route in the heightmap follows the cleaned line
+  }
+
+  let cleanTimer = null;
+  const scheduleClean = () => { clearTimeout(cleanTimer); cleanTimer = setTimeout(applyClean, 150); };
+  ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-smooth', 'clean-simplify'].forEach((id) => $(id).addEventListener('input', scheduleClean));
+  function setCleanInputs(spikes, spacing, smooth, simplify) {
+    $('clean-spikes').checked = spikes > 0;
+    $('clean-spike-m').value = spikes > 0 ? spikes : 20;
+    $('clean-spacing').value = spacing; $('clean-smooth').value = smooth; $('clean-simplify').value = simplify;
+  }
+  $('clean-suggest').addEventListener('click', () => { setCleanInputs(20, 3, 5, 2); applyClean(); });
+  $('clean-reset').addEventListener('click', () => { setCleanInputs(0, 0, 0, 0); applyClean(); });
 
   function fitToTrack() {
     const margin = Math.max(0, parseFloat($('track-margin').value) || 0) / 100;
@@ -402,13 +459,16 @@
   function loadTrackText(text, filename) {
     trackError('');
     try {
-      track = Track.parseTrackText(text, filename);
+      rawTrack = Track.parseTrackText(text, filename);
     } catch (err) {
       trackError(err.message);
       return;
     }
+    track = rawTrack;
+    setCleanInputs(0, 0, 0, 0);
     widthTouched = false;
     showTrack();
+    applyClean();
     fitToTrack();
   }
 
@@ -433,27 +493,140 @@
   $('track-fit').addEventListener('click', () => track && fitToTrack());
   $('track-clear').addEventListener('click', () => {
     track = null;
+    rawTrack = null;
+    trackVersion++;
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
+    if (rawLayer) { rawLayer.remove(); rawLayer = null; }
     $('track-file').value = '';
-    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'export-route-btn', 'route-layer-hint'].forEach((id) => { $(id).hidden = true; });
+    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'export-route-btn', 'route-layer-hint', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
     trackError('');
     if (elevation) recompute();
   });
 
   // ---- fetch + preview ---------------------------------------------------------------------
 
+  // Elevation loads by itself once the region, resolution or source stops changing. A change cancels a load in
+  // progress. Big outputs (a large download) wait for a click instead of fetching on every tweak.
+  const AUTO_FETCH_MAX_SAMPLES = 4.2e6;   // about 2048 x 2048
+  const SETTLE_MS = 700;
   let fetching = false;
-  let controller = null;
-  let elevation = null;   // last result from MapNCSources.fetchElevation
+  let controller = null;       // AbortController of the load in progress; also identifies "the current load"
+  let fetchTimer = null;
+  let interacting = 0;         // >0 while the user is mid-drag (drawing, resizing or moving): don't load yet
+  let elevation = null;        // last result from MapNCSources.fetchElevation
+
+  const setStatus = (t) => { $('status').textContent = t; };
+  function setFetchButton(label) {   // null hides it
+    $('fetch-btn').hidden = !label;
+    if (label) $('fetch-btn').textContent = label;
+  }
+  function showHeightmap(on) {
+    $('hm-section').hidden = !on;
+    $('export-section').hidden = !on;
+    $('hm-empty').hidden = on;
+    $('export-empty').hidden = on;
+  }
 
   function resetResult() {
     elevation = null;
-    $('result-info').hidden = true;
-    $('hm-section').hidden = true;
     grey = null;
+    $('result-info').hidden = true;
     $('fetch-error').hidden = true;
-    $('status').textContent = '';
+    showHeightmap(false);
   }
+
+  function setFetching(on) {
+    fetching = on;
+    $('progress').hidden = !on;
+    $('cancel-btn').hidden = !on;
+    if (on) setFetchButton(null);
+  }
+
+  function cancelFetch() {
+    clearTimeout(fetchTimer);
+    fetchTimer = null;
+    if (controller) { controller.abort(); controller = null; }
+    setFetching(false);
+  }
+
+  const currentPlan = () => Geo.planSource(bounds, $('source-select').value, resSpec());
+
+  function sizeNote(plan) {
+    const mb = plan.id === '3dep' ? plan.grid.width * plan.grid.height * 4 / 1048576 : (plan.tiles ? plan.tiles.count * 0.1 : 0);
+    return plan.grid.width + ' × ' + plan.grid.height + ' px' + (mb ? ', a download of up to ~' + Math.max(1, Math.round(mb)) + ' MB' : '');
+  }
+
+  /** Decide what to do about elevation data for the current region: nothing, wait for a click, or load soon. */
+  function scheduleAutoFetch() {
+    cancelFetch();
+    if (!bounds) { setStatus('Draw a region or load a route to begin.'); setFetchButton(null); return; }
+    const plan = currentPlan();
+    if (plan.tooLarge || Geo.overCap(plan.grid)) {
+      setStatus('The output is over the size limit. Make the region smaller, or lower the output size.');
+      setFetchButton(null);
+      return;
+    }
+    if (interacting) { setStatus('Waiting for you to finish editing…'); setFetchButton(null); return; }
+    if (plan.grid.width * plan.grid.height > AUTO_FETCH_MAX_SAMPLES) {
+      setStatus('Large output (' + sizeNote(plan) + '). Load it when you are ready.');
+      setFetchButton('Load elevation data');
+      return;
+    }
+    setStatus('Loading elevation shortly…');
+    setFetchButton(null);
+    fetchTimer = setTimeout(startFetch, SETTLE_MS);
+  }
+
+  function beginInteract() { interacting++; cancelFetch(); }
+  function endInteract() { interacting = Math.max(0, interacting - 1); if (!interacting) scheduleAutoFetch(); }
+
+  async function startFetch() {
+    if (!bounds) return;
+    cancelFetch();
+    resetResult();
+    const plan = currentPlan();
+    if (plan.tooLarge || Geo.overCap(plan.grid)) { scheduleAutoFetch(); return; }
+    const mine = new AbortController();
+    controller = mine;
+    setFetching(true);
+    $('progress').value = 0;
+    setStatus('Loading elevation…');
+    try {
+      const e = await window.MapNCSources.fetchElevation(Object.assign({}, bounds), $('source-select').value, {
+        signal: mine.signal,
+        spec: resSpec(),
+        onProgress: (f, msg) => { if (controller === mine) { $('progress').value = f; setStatus(msg); } },
+      });
+      if (controller !== mine) return;           // superseded by a newer region or setting
+      controller = null;
+      setFetching(false);
+      elevation = e;
+      setStatus(e.sourceLabel + ' · ' + e.width + ' × ' + e.height + ' px' + (e.note ? ' — ' + e.note : ''));
+      $('res-range').textContent = e.min.toFixed(1) + ' to ' + e.max.toFixed(1) + ' m (' + (e.max - e.min).toFixed(1) + ' m range)';
+      $('res-nodata').textContent = e.nodata ? (100 * e.nodata / e.data.length).toFixed(1) + '% (magenta in preview)' : 'none';
+      $('result-info').hidden = false;
+      showHeightmap(true);
+      recompute();
+    } catch (err) {
+      if (controller !== mine) return;
+      controller = null;
+      setFetching(false);
+      if (err.name === 'AbortError') { scheduleAutoFetch(); return; }
+      setStatus('Could not load elevation data.');
+      $('fetch-error').textContent = err.message;
+      $('fetch-error').hidden = false;
+      setFetchButton('Retry');
+    }
+  }
+
+  $('fetch-btn').addEventListener('click', startFetch);
+  $('reload-btn').addEventListener('click', startFetch);
+  $('cancel-btn').addEventListener('click', () => {
+    cancelFetch();
+    const plan = bounds && currentPlan();
+    setStatus('Stopped.');
+    if (plan && !plan.tooLarge) setFetchButton('Load elevation data');
+  });
 
   // ---- heightmap controls ------------------------------------------------------------------
 
@@ -492,7 +665,7 @@
 
   function routeWeights(shape) {
     const r = routeRadiusPx();
-    const key = shape + '|' + r.toFixed(3);
+    const key = shape + '|' + r.toFixed(3) + '|' + trackVersion;
     if (!routeCache || routeCache.elev !== elevation || routeCache.key !== key) {
       routeCache = { elev: elevation, key, weight: Track.rasterize(track, elevation.bounds, elevation.width, elevation.height, r, shape) };
     }
@@ -665,47 +838,13 @@
     }
   });
 
-  function setFetching(on) {
-    fetching = on;
-    $('fetch-btn').disabled = on;
-    $('cancel-btn').hidden = !on;
-    $('progress').hidden = !on;
-    drawBtn.disabled = on;
-    $('source-select').disabled = on;
-  }
+  $('source-select').addEventListener('change', () => { resetResult(); refresh(); scheduleAutoFetch(); });
 
-  $('cancel-btn').addEventListener('click', () => controller && controller.abort());
-
-  $('fetch-btn').addEventListener('click', async () => {
-    if (!bounds || fetching) return;
-    resetResult();
-    setFetching(true);
-    controller = new AbortController();
-    const fetchedBounds = Object.assign({}, bounds);
-    try {
-      const e = await window.MapNCSources.fetchElevation(fetchedBounds, $('source-select').value, {
-        signal: controller.signal,
-        spec: resSpec(),
-        onProgress: (f, msg) => { $('progress').value = f; $('status').textContent = msg; },
-      });
-      elevation = e;
-      $('status').textContent = e.sourceLabel + (e.note ? ' — ' + e.note : '');
-      $('res-range').textContent = e.min.toFixed(1) + ' to ' + e.max.toFixed(1) + ' m (' + (e.max - e.min).toFixed(1) + ' m range)';
-      $('res-nodata').textContent = e.nodata ? (100 * e.nodata / e.data.length).toFixed(1) + '% (magenta in preview)' : 'none';
-      $('result-info').hidden = false;
-      $('hm-section').hidden = false;
-      recompute();
-    } catch (err) {
-      if (err.name === 'AbortError') $('status').textContent = 'Cancelled.';
-      else { $('fetch-error').textContent = err.message; $('fetch-error').hidden = false; $('status').textContent = ''; }
-    } finally {
-      setFetching(false);
-      controller = null;
-      refresh();
-    }
+  // Collapsible panes remember whether they were open.
+  document.querySelectorAll('details.pane').forEach((d) => {
+    try { const v = localStorage.getItem('mapnc-pane-' + d.id); if (v !== null) d.open = v === '1'; } catch (e) { /* default state */ }
+    d.addEventListener('toggle', () => { try { localStorage.setItem('mapnc-pane-' + d.id, d.open ? '1' : '0'); } catch (e) { /* ignore */ } });
   });
-
-  $('source-select').addEventListener('change', () => { resetResult(); refresh(); });
 
   // Start with the sample route loaded so the whole flow can be tried straight away. "Clear route" removes it;
   // add ?sample=off to the address to start empty.
