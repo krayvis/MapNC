@@ -45,6 +45,7 @@ To run it locally, serve the folder with any static server, for example `python3
 No build step: edit the files and reload. Serve the folder (`python3 -m http.server`, or `npm run serve`) and open <http://localhost:8000>.
 
 - **Tests:** `npm install && npx playwright install chromium && npm test`. See [`tests/README.md`](tests/README.md): what each script covers, how the 3DEP service is mocked, and the live-service checks.
+- **Backlog:** [`BACKLOG.md`](BACKLOG.md) holds deferred ideas and what to do soon.
 - **Design notes:** [`PLAN.md`](PLAN.md) records the decisions, what was checked against the real services, and the open risks. Read it before changing the elevation fetching or the route clean-up.
 - **Vendored libraries:** Leaflet 1.9.4 and geotiff.js 2.1.3 are copied into `vendor/` from the npm packages (`npm pack leaflet@1.9.4 geotiff@2.1.3`; take `dist/leaflet.js`, `dist/leaflet.css`, `dist/images/`, and geotiff's `dist-browser/geotiff.js`), so the site works with no CDN. Leaflet's internals are patched at runtime in `js/app.js` (the `L.Draggable.prototype._onDown` patch that lets Shift-drag work on markers), so re-run the tests, `aspect.js` and `edit.js` in particular, after upgrading it.
 - **Deploying:** every push to `main` deploys (see above); a fork needs only the Pages setting.
@@ -64,6 +65,7 @@ No build step: edit the files and reload. Serve the folder (`python3 -m http.ser
 | `samples/` | Sample GPX route |
 | `vendor/` | Leaflet and geotiff.js (vendored) |
 | `PLAN.md` | Build plan, decisions and open risks |
+| `BACKLOG.md` | Deferred ideas and upcoming work |
 | `tests/` | Test scripts (Playwright and Node) and their README |
 | `LICENSE` | PolyForm Noncommercial 1.0.0 |
 
