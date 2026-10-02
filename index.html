@@ -221,10 +221,34 @@
           </label>
           <div class="row">
             <button id="export-btn" type="button">Export PNG</button>
-            <button id="export-route-btn" type="button" hidden>Export route layer</button>
           </div>
-          <p id="route-layer-hint" class="hint" hidden>The route layer is a transparent RGBA PNG at the same pixel size, with a red line of the width above (flat profile), for overlaying in an image editor.</p>
           <p id="export-status" class="hint" role="status"></p>
+        </div>
+        <div id="route-export" hidden>
+          <h3>Route export</h3>
+          <p class="hint">These need only the region and the route, not the elevation data.</p>
+          <label class="field">Route layer (PNG) size
+            <select id="layer-size">
+              <option value="1" selected>Same as the heightmap</option>
+              <option value="2">2× the heightmap</option>
+              <option value="4">4× the heightmap</option>
+              <option value="8">8× the heightmap</option>
+              <option value="px">Long side in pixels…</option>
+            </select>
+          </label>
+          <label class="field" id="layer-px-wrap" hidden>Long side (px, up to 16384)
+            <input id="layer-px" type="number" min="64" max="16384" step="1" value="8192">
+          </label>
+          <p id="layer-info" class="hint"></p>
+          <div class="row"><button id="export-route-btn" type="button">Export route layer (PNG)</button></div>
+          <p class="hint">Transparent PNG with a red line of the width set under Heightmap → Route (flat profile), framed exactly like the heightmap. A mostly empty image compresses to almost nothing, and it is drawn a strip at a time, so even very large sizes are fine to export (but your CAD/CAM or image editor must hold the whole bitmap to open it).</p>
+          <label class="inline"><input type="checkbox" id="vec-border" checked> Include a job-border rectangle</label>
+          <div class="row">
+            <button id="export-svg-btn" type="button">Export SVG</button>
+            <button id="export-dxf-btn" type="button">Export DXF</button>
+          </div>
+          <p id="vec-hint" class="hint"></p>
+          <p id="route-export-status" class="hint" role="status"></p>
         </div>
       </div>
     </details>
@@ -264,6 +288,7 @@
   <script src="js/sources.js"></script>
   <script src="js/heightmap.js"></script>
   <script src="js/track.js"></script>
+  <script src="js/vector.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

@@ -14,7 +14,9 @@ The sidebar is a set of collapsible panes (open/closed state is remembered). A s
 2. **Clean up route** (appears when a route is loaded). For noisy trackers: remove GPS spikes, collapse standing-still jitter (minimum point spacing), smooth, and simplify, each optional and in metres. The original shows as a dashed grey line under the cleaned red one, with point count, length and the largest shift reported. Your file is never modified.
 3. **Output size.** Auto (at least 2048 px on the long side, never below the source), a scale factor over the source, a long-side pixel count, or metres per pixel. Output finer than the source is smoothly (cubic) interpolated: no new terrain detail, but a smooth surface and route line in CAD/CAM software. Optionally enter your carve size to see mm per pixel; it is also stored in the PNG as its physical size.
 4. **Heightmap.** Elevation data loads **automatically** about 0.7 s after you stop changing the region, resolution or source (and never while you are mid-drag). Large outputs (over about 4 million samples) wait for a **Load elevation data** click instead. Choose the elevation range (auto or manual), vertical exaggeration, and invert. With a route loaded, set the **line width** (metres on the ground), **raise/lower** amount (% of the grey range) and **profile** (rounded, uniform or V). The preview shows the result live.
-5. **Export.** 16-bit greyscale PNG (default) or 8-bit. **Export route layer** saves the line alone as a transparent RGBA PNG on the same pixel grid.
+5. **Export.** 16-bit greyscale PNG (default) or 8-bit. With a route loaded there is also a **Route export** block, which needs only the region and the route (not the elevation data):
+   - **Route layer (PNG):** the line alone on a transparent RGBA canvas, framed exactly like the heightmap. Choose the same size, 2×, 4×, 8×, or a long side up to 16384 px. It is drawn and compressed a strip at a time, so even a very large layer uses little memory and is a small file (an 11281 × 16384 layer was about 1 MB), though the program you open it in must hold the whole bitmap. Cancel any time.
+   - **SVG and DXF:** the route as vector polylines, in millimetres of the finished carve once you enter a carve size (otherwise heightmap pixels), in the same frame as the heightmap. SVG has its origin top-left; DXF (AutoCAD R12) bottom-left, Y up. An optional job-border rectangle helps with alignment. DXF is usually the safer choice for Vectric or Carbide Create; check the size on import. These use the cleaned route, so cleaning first gives a much lighter file.
 
 **Advanced** (collapsed): the elevation source (Auto picks USGS 3DEP inside the US, AWS Terrain Tiles elsewhere), the max output size, and a reload button.
 
@@ -44,8 +46,9 @@ To run it locally, serve the folder with any static server, for example `python3
 | `index.html`, `css/style.css` | Page and styles |
 | `js/geo.js` | Region maths: ground size, source choice, Terrarium zoom, size cap |
 | `js/sources.js` | 3DEP and Terrarium fetchers, stitching, resampling to a ground-correct grid |
-| `js/heightmap.js` | Elevation to grey mapping, route burn, PNG encoder (16/8-bit and RGBA) |
-| `js/track.js` | GPX/TCX parsing, route clean-up, route rasterizing |
+| `js/heightmap.js` | Elevation to grey mapping, route burn, PNG encoders (in-memory 16/8-bit and RGBA, and a streaming one) |
+| `js/track.js` | GPX/TCX parsing, route clean-up, route rasterizing (whole image or a strip at a time) |
+| `js/vector.js` | SVG and DXF export of the route |
 | `js/app.js` | Map, UI wiring |
 | `js/theme.js` | Light / dark / auto theme (loaded in `<head>` to avoid a flash) |
 | `samples/` | Sample GPX route |

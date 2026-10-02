@@ -343,6 +343,7 @@
     $('info-source').textContent = plan.label + (plan.id === '3dep' && !plan.region ? ' (outside US coverage)' : '');
     $('info-res').textContent = plan.resolutionNote;
     $('out-info').hidden = !!plan.tooLarge;
+    updateRouteExportInfo();
     if (!plan.tooLarge) {
       const f = plan.resolutionM / plan.outputResM;
       $('out-px').textContent = fmtM(plan.outputResM) + ' per pixel' + (f > 1.05 ? ' (' + f.toFixed(1) + '× finer than source)' : f < 0.95 ? ' (coarser than source)' : ' (source resolution)');
@@ -399,9 +400,9 @@
     $('track-fit').hidden = false;
     $('track-clear').hidden = false;
     $('route-controls').hidden = false;
-    $('export-route-btn').hidden = false;
-    $('route-layer-hint').hidden = false;
+    $('route-export').hidden = false;
     $('pane-clean').hidden = false;
+    updateRouteExportInfo();
   }
 
   // ---- route clean-up ----------------------------------------------------------------------
@@ -498,7 +499,7 @@
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
     $('track-file').value = '';
-    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'export-route-btn', 'route-layer-hint', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
+    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'route-export', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
     trackError('');
     if (elevation) recompute();
   });
@@ -810,33 +811,117 @@
     }
   });
 
-  // Transparent RGBA layer: red line, flat profile, alpha = coverage. Same pixel grid as the heightmap.
+  // ---- route exports: PNG layer (streamed) and vector (SVG / DXF) ----------------------------
+  // These need only the region and the route. They are framed exactly like the heightmap: same bounds, and a pixel
+  // grid with the same aspect, so everything overlays.
+
+  const LAYER_MIN_PX = 64, LAYER_MAX_PX = 16384;
+  const ROUTE_RGB = [225, 29, 72];
+  const Vec = window.MapNCVector;
+
+  /** The heightmap's grid: from the loaded data when there is some, otherwise from the plan. null if unknown. */
+  function exportGrid() {
+    if (!bounds) return null;
+    if (elevation) return { bounds: Object.assign({}, elevation.bounds), W: elevation.width, H: elevation.height };
+    const plan = currentPlan();
+    return plan.tooLarge ? null : { bounds: Object.assign({}, bounds), W: plan.grid.width, H: plan.grid.height };
+  }
+
+  /** Size of the route layer PNG, from the size menu. Same framing and aspect as the heightmap. */
+  function layerDims() {
+    const grid = exportGrid();
+    if (!grid) return null;
+    const gs = Geo.groundSize(grid.bounds), longM = Math.max(gs.widthM, gs.heightM);
+    const sel = $('layer-size').value;
+    if (sel !== 'px' && Math.max(grid.W, grid.H) * Number(sel) <= LAYER_MAX_PX) {
+      // An exact whole multiple of the heightmap grid, so the two images overlay pixel for pixel.
+      const k = Number(sel);
+      return { bounds: grid.bounds, W: grid.W * k, H: grid.H * k, pm: longM / (Math.max(grid.W, grid.H) * k), longM, clamped: false };
+    }
+    const asked = sel === 'px' ? parseInt($('layer-px').value, 10) || 0 : Math.max(grid.W, grid.H) * Number(sel);
+    const longPx = Math.max(LAYER_MIN_PX, Math.min(LAYER_MAX_PX, Math.round(asked)));
+    const pm = longM / longPx;
+    return { bounds: grid.bounds, W: Math.max(1, Math.round(gs.widthM / pm)), H: Math.max(1, Math.round(gs.heightM / pm)), pm, longM, clamped: asked > LAYER_MAX_PX };
+  }
+
+  const lineWidthM = () => { const v = parseFloat($('route-width').value); return v > 0 ? v : 10; };
+
+  function updateRouteExportInfo() {
+    if (!track) return;
+    $('layer-px-wrap').hidden = $('layer-size').value !== 'px';
+    const d = layerDims();
+    if (!d) { $('layer-info').textContent = 'Draw a region first.'; return; }
+    const gb = d.W * d.H * 4 / 1e9;
+    $('layer-info').textContent = d.W + ' × ' + d.H + ' px (' + (d.pm >= 1 ? d.pm.toFixed(2) + ' m' : (d.pm * 100).toFixed(d.pm < 0.1 ? 1 : 0) + ' cm') + ' per pixel), line about ' +
+      Math.max(1, Math.round(lineWidthM() / d.pm)) + ' px wide.' + (d.clamped ? ' Limited to ' + LAYER_MAX_PX + ' px.' : '') +
+      (gb >= 0.25 ? ' Opening it in another program needs about ' + gb.toFixed(1) + ' GB of memory.' : '');
+    const mm = carveLongMm();
+    $('vec-hint').textContent = mm
+      ? 'Units: millimetres of the finished carve (long side ' + mm.toFixed(1) + ' mm). Origin: top-left in the SVG, bottom-left in the DXF. DXF is usually the safer choice for Vectric or Carbide Create; check the size on import.'
+      : 'Units: heightmap pixels. Enter a carve size under Output size to export in millimetres.';
+  }
+  ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
+  $('route-width').addEventListener('input', updateRouteExportInfo);
+  ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
+
+  function exportBaseName(d) {
+    const b = d.bounds, p = (v, pos, neg) => Math.abs(v).toFixed(3) + (v < 0 ? neg : pos);
+    return 'mapnc_' + p((b.north + b.south) / 2, 'N', 'S') + '_' + p((b.east + b.west) / 2, 'E', 'W');
+  }
+  const routeStatus = (t) => { $('route-export-status').textContent = t; };
+
+  let layerBusy = false, layerCancel = false;
   $('export-route-btn').addEventListener('click', async () => {
-    if (!elevation || !track) return;
     const btn = $('export-route-btn');
-    btn.disabled = true;
-    $('export-status').textContent = 'Encoding route layer…';
+    if (layerBusy) { layerCancel = true; routeStatus('Cancelling…'); return; }
+    const d = layerDims();
+    if (!track || !d) return;
+    layerBusy = true; layerCancel = false;
+    btn.textContent = 'Cancel';
     try {
-      const { width: W, height: H, bounds: b } = elevation;
-      const cover = Track.rasterize(track, b, W, H, routeRadiusPx(), 'uniform');
-      const rgba = new Uint8Array(W * H * 4);
-      for (let i = 0; i < cover.length; i++) {
-        rgba[i * 4] = 225; rgba[i * 4 + 1] = 29; rgba[i * 4 + 2] = 72;
-        rgba[i * 4 + 3] = Math.round(cover[i] * 255);
-      }
-      const blob = await HM.encodePng(W, H, 8, rgba, {
-        Software: 'MapNC',
-        Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','),
-        RouteWidthM: $('route-width').value,
-      }, 4, pixelsPerMetre());
-      $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename().replace(/_(8|16)bit\.png$/, '_route.png')) +
-        ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
+      const rowsPerBand = Math.max(1, Math.floor(4e6 / d.W));           // about 4 M pixels per strip
+      const br = Track.createBandRasterizer(track, d.bounds, d.W, d.H, lineWidthM() / 2 / d.pm, 'uniform', rowsPerBand);
+      const cover = new Float32Array(d.W * rowsPerBand), rgba = new Uint8Array(d.W * rowsPerBand * 4);
+      for (let i = 0; i < d.W * rowsPerBand; i++) { rgba[i * 4] = ROUTE_RGB[0]; rgba[i * 4 + 1] = ROUTE_RGB[1]; rgba[i * 4 + 2] = ROUTE_RGB[2]; }
+      const mm = carveLongMm(), b = d.bounds;
+      routeStatus('Drawing route layer… 0%');
+      const blob = await HM.encodePngStream({
+        width: d.W, height: d.H, channels: 4, rowsPerBand,
+        text: { Software: 'MapNC', Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','), RouteWidthM: String(lineWidthM()) },
+        pixelsPerMetre: mm ? Math.max(d.W, d.H) / (mm / 1000) : null,
+        isCancelled: () => layerCancel,
+        onProgress: (f) => routeStatus('Drawing route layer… ' + Math.round(f * 100) + '%'),
+        getRows: async (y0, n) => {
+          const band = Math.floor(y0 / rowsPerBand);
+          if (br.isEmpty(band)) { for (let i = 0; i < d.W * n; i++) rgba[i * 4 + 3] = 0; }
+          else { br.render(band, cover); for (let i = 0; i < d.W * n; i++) rgba[i * 4 + 3] = Math.round(cover[i] * 255); }
+          return rgba.subarray(0, d.W * n * 4);
+        },
+      });
+      routeStatus('Saved ' + saveBlob(blob, exportBaseName(d) + '_' + d.W + 'x' + d.H + '_route.png') + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).');
     } catch (err) {
-      $('export-status').textContent = 'Export failed: ' + err.message;
+      routeStatus(err.name === 'AbortError' ? 'Cancelled.' : 'Export failed: ' + err.message);
     } finally {
-      btn.disabled = false;
+      layerBusy = false; layerCancel = false;
+      btn.textContent = 'Export route layer (PNG)';
     }
   });
+
+  function vectorExport(kind) {
+    const grid = exportGrid();
+    if (!track || !grid) return;
+    const mm = carveLongMm(), gs = Geo.groundSize(grid.bounds), longM = Math.max(gs.widthM, gs.heightM);
+    const o = {
+      mmPerPx: mm ? mm / Math.max(grid.W, grid.H) : 0,
+      lineWidth: mm ? lineWidthM() * (mm / longM) : 0,     // only how thick the SVG line looks; CAM uses the centre line
+      border: $('vec-border').checked, title: track.name || 'MapNC route',
+    };
+    const text = kind === 'svg' ? Vec.toSvg(track, grid.bounds, grid.W, grid.H, o) : Vec.toDxf(track, grid.bounds, grid.W, grid.H, o);
+    const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });
+    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_route.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').');
+  }
+  $('export-svg-btn').addEventListener('click', () => vectorExport('svg'));
+  $('export-dxf-btn').addEventListener('click', () => vectorExport('dxf'));
 
   $('source-select').addEventListener('change', () => { resetResult(); refresh(); scheduleAutoFetch(); });
 

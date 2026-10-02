@@ -309,25 +309,32 @@
   function rasterize(track, bounds, W, H, radiusPx, shape) {
     const r = Math.max(radiusPx, 0.75);        // never thinner than about 1.5 px
     const out = new Float32Array(W * H);
-    const reach = r + 1;
-    const MAX_PIECE = 48;                      // split long segments so each bounding box stays small
+    for (const p of splitPieces(track, bounds, W, H, 48)) paintSegment(out, W, 0, H - 1, p[0], p[1], p[2], p[3], r, r + 1, shape);
+    return out;
+  }
+
+  /** Track as short straight pieces [x0, y0, x1, y1] in grid pixels, each at most `maxLen` px long (small bounding boxes). */
+  function splitPieces(track, bounds, W, H, maxLen) {
+    const out = [];
     for (const seg of toPixels(track, bounds, W, H)) {
       for (let i = 1; i < seg.length; i++) {
         const dx = seg[i].x - seg[i - 1].x, dy = seg[i].y - seg[i - 1].y;
-        const pieces = Math.max(1, Math.ceil(Math.hypot(dx, dy) / MAX_PIECE));
-        for (let k = 0; k < pieces; k++) {
-          paintSegment(out, W, H,
-            seg[i - 1].x + dx * (k / pieces), seg[i - 1].y + dy * (k / pieces),
-            seg[i - 1].x + dx * ((k + 1) / pieces), seg[i - 1].y + dy * ((k + 1) / pieces), r, reach, shape);
+        const n = Math.max(1, Math.ceil(Math.hypot(dx, dy) / maxLen));
+        for (let k = 0; k < n; k++) {
+          out.push([seg[i - 1].x + dx * (k / n), seg[i - 1].y + dy * (k / n), seg[i - 1].x + dx * ((k + 1) / n), seg[i - 1].y + dy * ((k + 1) / n)]);
         }
       }
     }
     return out;
   }
 
-  function paintSegment(out, W, H, x0, y0, x1, y1, r, reach, shape) {
+  /**
+   * Paint one straight piece into `out`, which holds rows yMin..yMax (row y is at out[(y - yMin) * W ...]).
+   * Writing the max weight keeps overlaps from digging twice.
+   */
+  function paintSegment(out, W, yMin, yMax, x0, y0, x1, y1, r, reach, shape) {
     const xa = Math.max(0, Math.floor(Math.min(x0, x1) - reach)), xb = Math.min(W - 1, Math.ceil(Math.max(x0, x1) + reach));
-    const ya = Math.max(0, Math.floor(Math.min(y0, y1) - reach)), yb = Math.min(H - 1, Math.ceil(Math.max(y0, y1) + reach));
+    const ya = Math.max(yMin, Math.floor(Math.min(y0, y1) - reach)), yb = Math.min(yMax, Math.ceil(Math.max(y0, y1) + reach));
     const vx = x1 - x0, vy = y1 - y0, len2 = vx * vx + vy * vy;
     for (let y = ya; y <= yb; y++) {
       for (let x = xa; x <= xb; x++) {
@@ -337,13 +344,40 @@
         const d = Math.hypot(px - (x0 + t * vx), py - (y0 + t * vy));
         if (d >= reach) continue;
         const w = profile(shape, d, r);
-        const idx = y * W + x;
+        const idx = (y - yMin) * W + x;
         if (w > out[idx]) out[idx] = w;
       }
     }
   }
 
-  const api = { cleanTrack, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, makeTrack };
+  /**
+   * Rasterize the same coverage as rasterize(), but one band of rows at a time, so a very large image never needs a
+   * full-size buffer. Pieces are indexed by the bands they touch; an empty band costs nothing.
+   *   const br = createBandRasterizer(track, bounds, W, H, radiusPx, shape, bandRows);
+   *   br.render(band, buf)  fills buf (Float32Array >= W * bandRows) with the band's rows and returns its row count.
+   */
+  function createBandRasterizer(track, bounds, W, H, radiusPx, shape, bandRows) {
+    const r = Math.max(radiusPx, 0.75), reach = r + 1;
+    const pieces = splitPieces(track, bounds, W, H, Math.max(24, Math.min(256, 2 * r)));
+    const bands = Math.ceil(H / bandRows);
+    const lists = Array.from({ length: bands }, () => []);
+    pieces.forEach((p, i) => {
+      const lo = Math.max(0, Math.floor((Math.min(p[1], p[3]) - reach) / bandRows)), hi = Math.min(bands - 1, Math.floor((Math.max(p[1], p[3]) + reach) / bandRows));
+      for (let b = lo; b <= hi; b++) lists[b].push(i);
+    });
+    return {
+      bands,
+      isEmpty: (band) => lists[band].length === 0,
+      render(band, buf) {
+        const y0 = band * bandRows, y1 = Math.min(H - 1, y0 + bandRows - 1), rows = y1 - y0 + 1;
+        buf.fill(0, 0, rows * W);
+        for (const i of lists[band]) { const p = pieces[i]; paintSegment(buf, W, y0, y1, p[0], p[1], p[2], p[3], r, reach, shape); }
+        return rows;
+      },
+    };
+  }
+
+  const api = { cleanTrack, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCTrack = api;
 })(typeof self !== 'undefined' ? self : this);

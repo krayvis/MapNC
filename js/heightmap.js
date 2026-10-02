@@ -129,7 +129,75 @@
     return new Blob(parts, { type: 'image/png' });
   }
 
-  const api = { resolveRange, toGrey, encodePng };
+
+  /**
+   * Encode an 8-bit image (channels 1 or 4) without ever holding it whole: rows come from `getRows(y0, n)` a band at a
+   * time (a Uint8Array of n * width * channels bytes), are filtered, and are fed straight into the compressor. Memory
+   * stays at about one band plus the compressed output, so very large mostly-empty images (a route on a transparent
+   * canvas) are cheap. Options: { width, height, channels, rowsPerBand, getRows, text, pixelsPerMetre, onProgress,
+   * isCancelled }. Rejects with an AbortError if isCancelled() turns true.
+   */
+  async function encodePngStream(o) {
+    const { width, height, getRows, rowsPerBand } = o;
+    const channels = o.channels === 4 ? 4 : 1, rowBytes = width * channels;
+    const cs = new CompressionStream('deflate');
+    const writer = cs.writable.getWriter(), reader = cs.readable.getReader();
+    const packed = [];
+    const pump = (async () => { for (;;) { const r = await reader.read(); if (r.done) return; packed.push(r.value); } })();
+    pump.catch(() => {});
+    const prev = new Uint8Array(rowBytes);
+    try {
+      for (let y0 = 0; y0 < height; y0 += rowsPerBand) {
+        if (o.isCancelled && o.isCancelled()) throw new DOMException('Cancelled', 'AbortError');
+        const n = Math.min(rowsPerBand, height - y0);
+        const rows = await o.getRows(y0, n);
+        const raw = new Uint8Array(n * (rowBytes + 1));
+        for (let r = 0; r < n; r++) {
+          const src = rows.subarray(r * rowBytes, (r + 1) * rowBytes), at = r * (rowBytes + 1);
+          if (y0 + r === 0) { raw[at] = 0; raw.set(src, at + 1); }
+          else { raw[at] = 2; for (let i = 0; i < rowBytes; i++) raw[at + 1 + i] = (src[i] - prev[i]) & 255; }
+          prev.set(src);
+        }
+        await writer.write(raw);
+        if (o.onProgress) o.onProgress((y0 + n) / height);
+        await new Promise((res) => setTimeout(res, 0));          // let the page repaint between bands
+      }
+      await writer.close();
+      await pump;
+    } catch (err) {
+      writer.abort().catch(() => {});
+      throw err;
+    }
+    const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdrFor(width, height, 8, channels))];
+    pushMeta(parts, o.text, o.pixelsPerMetre);
+    let group = [], size = 0;                                    // merge the compressor's small outputs into ~256 KB IDATs
+    const flush = () => { if (size) { const b = new Uint8Array(size); let at = 0; for (const g of group) { b.set(g, at); at += g.length; } parts.push(chunk('IDAT', b)); group = []; size = 0; } };
+    for (const piece of packed) { group.push(piece); size += piece.length; if (size >= 262144) flush(); }
+    flush();
+    parts.push(chunk('IEND', new Uint8Array(0)));
+    return new Blob(parts, { type: 'image/png' });
+  }
+
+  function ihdrFor(width, height, bits, channels) {
+    const ihdr = new Uint8Array(13), dv = new DataView(ihdr.buffer);
+    dv.setUint32(0, width); dv.setUint32(4, height);
+    ihdr[8] = bits; ihdr[9] = channels === 4 ? 6 : 0;
+    return ihdr;
+  }
+
+  function pushMeta(parts, text, pixelsPerMetre) {
+    if (pixelsPerMetre > 0) {
+      const phys = new Uint8Array(9), pv = new DataView(phys.buffer), ppm = Math.round(pixelsPerMetre);
+      pv.setUint32(0, ppm); pv.setUint32(4, ppm); phys[8] = 1;
+      parts.push(chunk('pHYs', phys));
+    }
+    for (const [key, value] of Object.entries(text || {})) {
+      const clean = (t) => String(t).replace(/[^\x20-\x7e]/g, '?');
+      parts.push(chunk('tEXt', Uint8Array.from(clean(key).slice(0, 79) + '\0' + clean(value), (c) => c.charCodeAt(0))));
+    }
+  }
+
+  const api = { resolveRange, toGrey, encodePng, encodePngStream };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCHeightmap = api;
 })(typeof self !== 'undefined' ? self : this);
