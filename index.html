@@ -37,10 +37,12 @@
       <summary><span class="step">1</span> Route &amp; region</summary>
       <div class="pane-body">
         <h3>Route (optional)</h3>
-        <label class="field">GPX or TCX file
-          <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml">
-        </label>
-        <div class="row">
+        <div class="field">GPX or TCX file
+          <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml" hidden>
+          <div id="track-name" class="filename">No file loaded</div>
+        </div>
+        <div class="row route-actions">
+          <button id="track-load" type="button">Load file</button>
           <button id="track-clear" type="button" hidden>Clear route</button>
         </div>
         <p class="hint">Loading a route fits the region to it. A sample (Sierra Buttes Fire Lookout, California) is loaded to start; Clear route removes it.</p>
@@ -54,14 +56,8 @@
         <p id="track-error" class="warning" hidden></p>
 
         <h3>Region</h3>
-        <div class="row">
-          <button id="draw-btn" type="button">Draw rectangle</button>
-          <button id="clear-btn" type="button" disabled>Clear</button>
-        </div>
-        <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map.</p>
-        <p id="edit-hint" class="hint" hidden>With a mouse, hold Shift, Ctrl/⌘ or Alt/Option while dragging to resize from the centre.</p>
         <div class="field">
-          <label for="aspect-select">Aspect ratio (on the ground)</label>
+          <label for="aspect-select">Aspect ratio</label>
           <div class="row">
             <select id="aspect-select">
               <option value="free" selected>Free</option>
@@ -82,9 +78,14 @@
             <input id="aspect-h" type="number" min="0.01" step="any" value="1" aria-label="Aspect height">
           </div>
         </div>
+        <div class="row">
+          <button id="draw-btn" type="button">Draw rectangle</button>
+          <button id="clear-btn" type="button" disabled>Clear</button>
+        </div>
+        <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map.</p>
+        <p id="edit-hint" class="hint" hidden>With a mouse, hold Shift, Ctrl/⌘ or Alt/Option while dragging to resize from the centre.</p>
         <dl id="region-info" class="info" hidden>
           <dt>Size</dt><dd id="info-size">–</dd>
-          <dt>Aspect</dt><dd id="info-aspect">–</dd>
           <dt>Corners</dt><dd id="info-corners">–</dd>
           <dt>Output grid</dt><dd id="info-grid">–</dd>
         </dl>

@@ -215,3 +215,6 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .osm-group { border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; padding: 4px 10px 6px; }
 .osm-group legend { padding: 0 4px; font-size: 0.9em; color: var(--muted); }
 #credits { font-size: 0.8em; margin: 16px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); line-height: 1.4; }
+
+.filename { margin-top: 4px; color: var(--muted, inherit); overflow-wrap: anywhere; }
+.route-actions > button { flex: 1; }

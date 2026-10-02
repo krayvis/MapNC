@@ -362,7 +362,6 @@
     $('region-info').hidden = false;
     $('source-info').hidden = false;
     $('info-size').textContent = fmtKm(g.widthM) + ' × ' + fmtKm(g.heightM);
-    $('info-aspect').textContent = (g.widthM / g.heightM).toFixed(2) + ' : 1' + (ratio ? ' (locked)' : '');
     $('info-corners').textContent = fmtDeg({ lat: bounds.north, lng: bounds.west }) + ' to ' + fmtDeg({ lat: bounds.south, lng: bounds.east });
     $('info-grid').textContent = plan.tooLarge ? '–' : plan.grid.width + ' × ' + plan.grid.height + ' px';
     $('info-source').textContent = plan.label + (plan.id === '3dep' && !plan.region ? ' (outside US coverage)' : '');
@@ -527,6 +526,7 @@
     }
     resetEditState();
     track = rawTrack;
+    $('track-name').textContent = filename || 'Route';
     setCleanInputs(0, 0);
     widthTouched = false;
     showTrack();
@@ -534,6 +534,7 @@
     fitToTrack();
   }
 
+  $('track-load').addEventListener('click', () => $('track-file').click());
   $('track-file').addEventListener('change', async (ev) => {
     const f = ev.target.files[0];
     if (f) loadTrackText(await f.text(), f.name);
@@ -557,6 +558,7 @@
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
     $('track-file').value = '';
+    $('track-name').textContent = 'No file loaded';
     ['track-info', 'track-fit', 'track-clear', 'route-guide-wrap', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
     syncVectorUi();
     trackError('');

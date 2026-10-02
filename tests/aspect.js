@@ -18,7 +18,6 @@ const srv = http.createServer((q, r) => { const p = path.join(require('./lib.js'
   await pg.click('#draw-btn');
   await drag(m.x + 400, m.y + 250, m.x + 800, m.y + 400);
   let s = await st(); check('draw locked 1:1', Math.abs(s.ratio - 1) < 1e-4, JSON.stringify(s));
-  check('info shows locked', (await pg.locator('#info-aspect').innerText()).includes('locked'), await pg.locator('#info-aspect').innerText());
 
   // 2. resize by SE corner, NW stays fixed
   let hb = await handleBoxes(); const se = hb.reduce((a, c) => (c[0] + c[1] > a[0] + a[1] ? c : a));
