@@ -31,7 +31,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('suggested settings cut the point count a lot', c < a / 3, pts);
   check('length + shift reported', /→/.test(await txt('clean-length')) && /m from the original/.test(await txt('clean-shift')), `${await txt('clean-length')} | ${await txt('clean-shift')}`);
   check('original shown dashed under the cleaned line', (await paths()) === p0 + 1);
-  check('route in the heightmap changed', (await sum()) !== base);
+  check('cleaning leaves the heightmap untouched', (await sum()) === base);
   check('no elevation reload from cleaning', reqs === reqs0, `${reqs - reqs0} new requests`);
   check('track summary follows the cleaned track', new RegExp(c + ' points').test(await txt('track-info')), await txt('track-info'));
 

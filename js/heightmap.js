@@ -12,11 +12,6 @@
  *   Linear (no curve) is the default. With a curve, metres per grey level is no longer constant; `metresPerLevel` is then
  *   the average over the window.
  *
- * Route burn (opts.route = { weight: Float32Array 0..1, fraction }): after the mapping above and before clamping,
- *   t += weight * fraction.   `fraction` is a share of the full grey range (so +0.03 raises the route by 3 % of the
- *   range, -0.03 cuts a groove of that depth). It is applied to terrain height, BEFORE `invert`, so "raise" always
- *   means higher terrain even when the picture is inverted. In metres this is fraction * (hi - lo) / k.
- *
  * Works in browsers and Node 18+ (needs Blob + CompressionStream for PNG encoding).
  */
 (function (root) {
@@ -43,14 +38,12 @@
     const cv = opts.curve && opts.curve.strength > 1 && (opts.curve.kind === 'valleys' || opts.curve.kind === 'peaks') ? opts.curve : null;
     const gamma = cv ? (cv.kind === 'valleys' ? 1 / cv.strength : cv.strength) : 1;
     const out = bits === 8 ? new Uint8Array(elev.length) : new Uint16Array(elev.length);
-    const route = opts.route && opts.route.weight ? opts.route : null;
     let clippedHigh = 0, clippedLow = 0, nodata = 0;
     for (let i = 0; i < elev.length; i++) {
       const z = elev[i];
       if (z !== z) { nodata++; out[i] = 0; continue; }
       let t = (z - lo) * scale;
       if (cv) { const u = t / k; if (u > 0 && u < 1) t = Math.pow(u, gamma) * k; }   // outside the window it clips as before
-      if (route) t += route.weight[i] * route.fraction;
       if (t > 1) { clippedHigh++; t = 1; } else if (t < 0) { clippedLow++; t = 0; }
       const g = Math.round(t * maxVal);
       out[i] = opts.invert ? maxVal - g : g;

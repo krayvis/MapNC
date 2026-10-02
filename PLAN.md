@@ -20,7 +20,7 @@ Static, client-side proof of concept. No backend, no build step. Everything runs
 1. **Map + region selection** *(done)*: Leaflet map, draw/resize a rectangle, ground-size and output-grid estimate, size cap, source auto-detect and resolution readout.
 2. **Elevation fetch + stitch** *(done; tested with real Terrarium data and a mocked 3DEP service)*: Terrarium tiles → decode; 3DEP `exportImage` (float32 GeoTIFF via geotiff.js), split into sub-requests; resample to an equirectangular grid corrected by cos(lat) so aspect is ground-true.
 3. **Heightmap + export** *(done; PNG encoder verified bit-exact with Pillow, `js/heightmap.js` uses the browser's CompressionStream instead of UPNG.js, so no dependency)*: auto / manual range, height curve (gamma; replaced the linear vertical exaggeration, which CAM software does better), 8-bit canvas preview, 16-bit PNG from `Uint16Array`, optional 8-bit, elevation range and metres per grey level.
-4. **Track overlay** *(done; burn-in verified against independent numpy maths for all three profiles; TCX supported, FIT not)*: GPX parse, fit region to track bbox + margin, draw route over the preview, export transparent route PNG.
+4. **Track overlay** *(done; TCX supported, FIT not; the route was once burned into the heightmap, now removed in favour of separate PNG/SVG/DXF layer exports)*: GPX parse, fit region to track bbox + margin, draw route over the preview, export transparent route PNG.
 5. **README + Pages deploy** *(README and workflow written; Pages source must be set to GitHub Actions once in repo Settings)*, attributions (USGS 3DEP, AWS Terrain Tiles and its underlying datasets, map tile provider).
 
 ## Decisions and open risks

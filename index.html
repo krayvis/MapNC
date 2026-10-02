@@ -41,10 +41,9 @@
           <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml">
         </label>
         <div class="row">
-          <button id="track-sample" type="button">Load sample route</button>
           <button id="track-clear" type="button" hidden>Clear route</button>
         </div>
-        <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it. A sample (Sierra Buttes Fire Lookout, California) is loaded to start.</p>
+        <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it. A sample (Sierra Buttes Fire Lookout, California) is loaded to start; Clear route removes it.</p>
         <div class="row">
           <label class="field">Margin (% each side)
             <input id="track-margin" type="number" min="0" max="200" step="1" value="15">
@@ -213,29 +212,6 @@
               <option value="8">8-bit greyscale PNG</option>
             </select>
           </label>
-          <div id="route-controls" hidden>
-            <h3>Route in heightmap</h3>
-            <label class="inline"><input type="checkbox" id="route-burn" checked> Burn route into heightmap</label>
-            <label class="field">Line width (m on the ground)
-              <input id="route-width" type="number" min="1" step="any">
-            </label>
-            <label class="field">Raise / lower (% of grey range)
-              <input id="route-amount" type="number" min="-100" max="100" step="0.5" value="-3">
-            </label>
-            <p class="hint">Negative cuts a groove, positive raises a ridge. Applied to terrain height, before Invert.</p>
-            <label class="field">Profile
-              <select id="route-shape">
-                <option value="rounded" selected>Rounded (half-round section)</option>
-                <option value="uniform">Uniform (flat bottom, constant depth)</option>
-                <option value="v">V (tapers to a point)</option>
-              </select>
-            </label>
-            <dl class="info">
-              <dt>Line width</dt><dd id="route-px">–</dd>
-              <dt>Depth / height</dt><dd id="route-depth">–</dd>
-            </dl>
-            <p id="route-warning" class="warning" hidden></p>
-          </div>
           <div class="row">
             <button id="export-btn" type="button">Export PNG</button>
           </div>
@@ -249,6 +225,9 @@
             <button type="button" role="tab" id="tab-vec" aria-controls="tabpanel-vec" aria-selected="false" tabindex="-1">Vector (SVG / DXF)</button>
           </div>
           <div id="tabpanel-png" role="tabpanel" aria-labelledby="tab-png">
+          <label class="field">Line width (m on the ground)
+            <input id="route-width" type="number" min="1" step="any">
+          </label>
           <label class="field">Route layer (PNG) size
             <select id="layer-size">
               <option value="1" selected>Same as the heightmap</option>
@@ -263,7 +242,7 @@
           </label>
           <p id="layer-info" class="hint"></p>
           <div class="row"><button id="export-route-btn" type="button">Export route layer (PNG)</button></div>
-          <p class="hint">Transparent PNG with a red line of the width set under Heightmap → Route (flat profile), framed exactly like the heightmap. A mostly empty image compresses to almost nothing, and it is drawn a strip at a time, so even very large sizes are fine to export (but your CAD/CAM or image editor must hold the whole bitmap to open it).</p>
+          <p class="hint">Transparent PNG with a red line of the width above, framed exactly like the heightmap. A mostly empty image compresses to almost nothing, and it is drawn a strip at a time, so even very large sizes are fine to export (but your CAD/CAM or image editor must hold the whole bitmap to open it).</p>
           </div>
           <div id="tabpanel-vec" role="tabpanel" aria-labelledby="tab-vec" hidden>
           <label class="inline"><input type="checkbox" id="vec-border" checked> Include a job-border rectangle</label>

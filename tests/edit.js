@@ -57,7 +57,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   const c1 = await center(); check('dragging a vertex does not pan the map', Math.abs(c1[0] - c0[0]) < 1e-9 && Math.abs(c1[1] - c0[1]) < 1e-9);
   check('point count unchanged by a move', (await pts()) === n0);
   check('one undo step recorded', (await view()).undo === 1);
-  await pg.waitForTimeout(500); check('heightmap route changed after the drop', (await gsum()) !== sum0);
+  await pg.waitForTimeout(500); check('heightmap unaffected by route edits', (await gsum()) === sum0);
   check('no elevation reload from editing', reqs === reqs0, `${reqs - reqs0} requests`);
   check('clean-up locked, discard offered', await pg.locator('#clean-suggest').isDisabled() && await pg.locator('#edit-discard2').isVisible());
 

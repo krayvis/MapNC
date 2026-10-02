@@ -332,10 +332,7 @@
     const v = parseFloat($('carve-size').value);
     return v > 0 ? v * ($('carve-unit').value === 'in' ? 25.4 : 1) : null;
   }
-  ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', () => {
-    refresh();
-    if (elevation && grey) updateRouteReadout();
-  }));
+  ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', refresh));
 
   const fmtM = (m) => (m >= 100 ? m.toFixed(0) : m >= 10 ? m.toFixed(1) : m.toFixed(2)) + ' m';
 
@@ -412,7 +409,6 @@
   let cleanedTrack = null; // rawTrack after the automatic clean-up
   let editTrack = null;    // cleanedTrack plus manual edits; exists only while there are edits
   let lastCleanStats = null;
-  let trackVersion = 0;    // bumps whenever `track` changes, so cached route weights are rebuilt
   let trackLayer = null;   // Leaflet polyline group
   let widthTouched = false; // true once the user edits the line width, so a re-fit won't overwrite it
 
@@ -444,7 +440,7 @@
     $('track-info').hidden = false;
     $('track-fit').hidden = false;
     $('track-clear').hidden = false;
-    $('route-controls').hidden = false; $('route-guide-wrap').hidden = false;
+    $('route-guide-wrap').hidden = false;
     $('route-export').hidden = false;
     $('pane-clean').hidden = false;
     updateRouteExportInfo();
@@ -464,7 +460,6 @@
     try { result = Track.cleanTrack(rawTrack, cleanOpts()); } catch (err) { trackError('Clean-up failed: ' + err.message); return; }
     cleanedTrack = result.track;
     track = editTrack || cleanedTrack;
-    trackVersion++;
     const st = lastCleanStats = result.stats;
     trackLayer.setLatLngs(ll(track));
     syncRawLayer();
@@ -474,7 +469,6 @@
     $('clean-spikes-n').textContent = $('clean-spikes').checked ? String(st.spikes) : '–';
     refreshEditUi();
     $('track-info').textContent = trackSummary();
-    if (elevation) recompute();      // the route in the heightmap follows the cleaned line
   }
 
   let cleanTimer = null;
@@ -523,18 +517,14 @@
     if (f) loadTrackText(await f.text(), f.name);
   });
 
-  // Sample route shipped with the site (same origin, so no CORS and nothing leaves the browser).
-  async function loadSample(quiet) {
+  // Sample route shipped with the site (same origin, so no CORS and nothing leaves the browser). It loads at start.
+  async function loadSample() {
     try {
       const res = await fetch('samples/sierra-buttes-fire-lookout.gpx');
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      $('track-file').value = '';
       loadTrackText(await res.text(), 'sierra-buttes-fire-lookout.gpx');
-    } catch (err) {
-      if (!quiet) trackError('Could not load the sample route: ' + err.message + '. (It needs the page to be served over http, not opened as a file.)');
-    }
+    } catch (err) { /* the sample is a convenience; start empty if it cannot load */ }
   }
-  $('track-sample').addEventListener('click', () => loadSample(false));
 
   $('track-fit').addEventListener('click', () => track && fitToTrack());
   $('track-clear').addEventListener('click', () => {
@@ -542,11 +532,10 @@
     track = null;
     rawTrack = null;
     cleanedTrack = null;
-    trackVersion++;
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
     $('track-file').value = '';
-    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'route-guide-wrap', 'route-export', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
+    ['track-info', 'track-fit', 'track-clear', 'route-guide-wrap', 'route-export', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
     trackError('');
     if (elevation) recompute();
   });
@@ -692,61 +681,12 @@
       curve: { kind: $('curve-kind').value, strength: parseFloat($('curve-strength').value) },
       bits: Number($('bits-select').value),
       invert: $('invert').checked,
-      route: routeBurn(),
     };
   }
 
   // ---- route rasterizing -------------------------------------------------------------------
 
   let routeCache = null;   // { elev, key, weight }: the route weights depend only on grid, width and profile
-
-  /** Ground size of one output pixel in metres (mean of the two axes; they match to well under 1 %). */
-  function pixelMetres() {
-    const g = Geo.groundSize(elevation.bounds);
-    return (g.widthM / elevation.width + g.heightM / elevation.height) / 2;
-  }
-
-  function routeRadiusPx() {
-    const widthM = parseFloat($('route-width').value);
-    return Number.isFinite(widthM) && widthM > 0 ? widthM / 2 / pixelMetres() : 0;
-  }
-
-  function routeWeights(shape) {
-    const r = routeRadiusPx();
-    const key = shape + '|' + r.toFixed(3) + '|' + trackVersion;
-    if (!routeCache || routeCache.elev !== elevation || routeCache.key !== key) {
-      routeCache = { elev: elevation, key, weight: Track.rasterize(track, elevation.bounds, elevation.width, elevation.height, r, shape) };
-    }
-    return routeCache.weight;
-  }
-
-  /** The { weight, fraction } the heightmap mapping needs, or null when there is nothing to burn. */
-  function routeBurn() {
-    if (!track || !elevation || !$('route-burn').checked) return null;
-    const pct = parseFloat($('route-amount').value);
-    if (!Number.isFinite(pct) || pct === 0 || routeRadiusPx() <= 0) return null;
-    return { weight: routeWeights($('route-shape').value), fraction: pct / 100 };
-  }
-
-  function updateRouteReadout() {
-    if (!track || !elevation) return;
-    const r = routeRadiusPx(), widthPx = Math.max(2 * r, 1.5);
-    const mm = carveLongMm(), gs = Geo.groundSize(elevation.bounds);
-    const onCarve = mm ? ', about ' + ((widthPx * pixelMetres()) / Math.max(gs.widthM, gs.heightM) * mm).toFixed(2) + ' mm on the carve' : '';
-    $('route-px').textContent = r > 0 ? widthPx.toFixed(1) + ' px (' + (widthPx * pixelMetres()).toFixed(0) + ' m' + onCarve + ')' : '–';
-    const pct = parseFloat($('route-amount').value) || 0;
-    const metres = Math.abs(pct / 100) * (grey.hi - grey.lo) / grey.k;
-    $('route-depth').textContent = pct === 0 ? 'none' : (pct < 0 ? 'cuts ' : 'raises ') +
-      (metres >= 1 ? metres.toFixed(1) + ' m' : (metres * 1000).toFixed(0) + ' mm') + ' of terrain, ' +
-      Math.round(Math.abs(pct) / 100 * grey.maxVal) + ' grey levels';
-    const msgs = [];
-    if (r > 0 && widthPx < 3) msgs.push('The line is only about ' + widthPx.toFixed(1) + ' px wide and may be lost when carved. Widen it, or use a smaller region for more pixels.');
-    const b = elevation.bounds;
-    const outside = track.segments.some((seg) => seg.some((p) => p.lat < b.south || p.lat > b.north || p.lon < b.west || p.lon > b.east));
-    if (outside) msgs.push('Part of the route lies outside the selected region and is cut off.');
-    $('route-warning').textContent = msgs.join(' ');
-    $('route-warning').hidden = msgs.length === 0;
-  }
 
   function recompute() {
     if (!elevation) return;
@@ -761,7 +701,6 @@
     $('hm-clip').textContent = clip ? (100 * clip / total).toFixed(1) + '% of samples (' +
       (grey.clippedHigh ? 'above window' : '') + (grey.clippedHigh && grey.clippedLow ? ', ' : '') + (grey.clippedLow ? 'below window' : '') + ')' : 'none';
     $('export-status').textContent = '';
-    updateRouteReadout();
     drawPreview();
   }
 
@@ -801,9 +740,8 @@
   }));
   ['range-lo', 'range-hi', 'curve-strength'].forEach((id) => $(id).addEventListener('input', scheduleRecompute));
   $('curve-kind').addEventListener('change', () => { $('curve-strength-wrap').hidden = $('curve-kind').value === 'linear'; recompute(); });
-  ['bits-select', 'invert', 'route-burn', 'route-shape', 'route-guide'].forEach((id) => $(id).addEventListener('change', recompute));
-  $('route-amount').addEventListener('input', scheduleRecompute);
-  $('route-width').addEventListener('input', () => { widthTouched = true; scheduleRecompute(); });
+  ['bits-select', 'invert', 'route-guide'].forEach((id) => $(id).addEventListener('change', recompute));
+  $('route-width').addEventListener('input', () => { widthTouched = true; });
 
   function saveBlob(blob, name) {
     const a = document.createElement('a');
@@ -818,16 +756,6 @@
   function pixelsPerMetre() {
     const mm = carveLongMm();
     return mm ? Math.max(elevation.width, elevation.height) / (mm / 1000) : null;
-  }
-
-  function routeMetadata() {
-    if (!track || !routeBurn()) return {};
-    return {
-      RouteBurned: 'true',
-      RouteWidthM: $('route-width').value,
-      RouteAmountPct: $('route-amount').value,
-      RouteProfile: $('route-shape').value,
-    };
   }
 
   function exportFilename() {
@@ -851,7 +779,6 @@
         MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5) + (grey.curve ? ' (average)' : ''),
         HeightCurve: grey.curve ? grey.curve.kind + ' ' + grey.curve.strength : 'linear',
         Inverted: String($('invert').checked),
-        ...routeMetadata(),
       }, 1, pixelsPerMetre());
       $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename()) + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
     } catch (err) {
@@ -953,7 +880,6 @@
 
   /** After the route changed for good (drop, delete, undo, redo): redraw everything that depends on it. */
   function commitTrackChange() {
-    trackVersion++;
     trackLayer.setLatLngs(ll(track));
     syncRawLayer();
     $('track-info').textContent = trackSummary();
@@ -1294,5 +1220,5 @@
 
   // Start with the sample route loaded so the whole flow can be tried straight away. "Clear route" removes it;
   // add ?sample=off to the address to start empty.
-  if (new URLSearchParams(location.search).get('sample') !== 'off') loadSample(true);
+  if (new URLSearchParams(location.search).get('sample') !== 'off') loadSample();
 })();

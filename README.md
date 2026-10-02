@@ -1,6 +1,6 @@
 # MapNC
 
-Select a region on a map, get a **16-bit greyscale heightmap PNG**, and optionally burn a hike track into it. Built for CNC relief carving.
+Select a region on a map, get a **16-bit greyscale heightmap PNG**, and optionally export a hike track as separate route layers (PNG, SVG, DXF) to line up with it. Built for CNC relief carving.
 
 Everything runs in your browser. Nothing is uploaded: elevation data comes straight from the public sources below, and your GPX/TCX file is read locally.
 
@@ -14,14 +14,14 @@ The sidebar is a set of collapsible panes (opening one closes the others, and wh
 2. **Clean up & edit route** (appears when a route is loaded). For noisy trackers: remove GPS spikes, collapse standing-still jitter (minimum point spacing), smooth, and simplify, each optional and in metres. The original shows as a dashed grey line under the cleaned red one, with point count, length and the largest shift reported. Your file is never modified.
    **Edit points on the map…** switches the sidebar into a dedicated editing view, so you can fix what the clean-up cannot while looking at satellite imagery: drag a point to move it, drag the line to add a point, click to select (Shift+click for a stretch) and Delete (or right-click) to remove, with undo/redo. The view has a Street / Satellite / Topo switcher, a thin-line option and a toggle for the dashed original. Edits flow into the heightmap, the PNG route layer and the SVG/DXF. Clean-up settings lock while you have manual edits (Discard unlocks them). Handles appear when fewer than 1500 points are in view, so zoom in on the part you are fixing. Works with mouse and touch.
 3. **Output size.** Auto (at least 2048 px on the long side, never below the source), a scale factor over the source, a long-side pixel count, or metres per pixel. Output finer than the source is smoothly (cubic) interpolated: no new terrain detail, but a smooth surface and route line in CAD/CAM software. Optionally enter your carve size (and your finishing stepover) to see mm per pixel and get advice on whether the resolution is enough: too coarse, fine, or finer than the source data can justify. The carve size is also stored in the PNG as its physical size.
-4. **Heightmap.** Elevation data loads **automatically** about 0.7 s after you stop changing the region, resolution or source (and never while you are mid-drag). Large outputs (over about 4 million samples) wait for a **Load elevation data** click instead. Choose the elevation range (auto or manual), a **height curve** (linear, or emphasise valleys or peaks, for more grey levels in low or high ground), and invert. With a route loaded, set the **line width** (metres on the ground), **raise/lower** amount (% of the grey range) and **profile** (rounded, uniform or V). The preview shows the result live.
+4. **Heightmap.** Elevation data loads **automatically** about 0.7 s after you stop changing the region, resolution or source (and never while you are mid-drag). Large outputs (over about 4 million samples) wait for a **Load elevation data** click instead. Choose the elevation range (auto or manual), a **height curve** (linear, or emphasise valleys or peaks, for more grey levels in low or high ground), and invert. The route is never burned into the heightmap; it exports as separate layers (step 5). The preview can show it as a guide line.
 5. **Export.** 16-bit greyscale PNG (default) or 8-bit. With a route loaded there is also a **Route export** block, which needs only the region and the route (not the elevation data):
-   - **Route layer (PNG):** the line alone on a transparent RGBA canvas, framed exactly like the heightmap. Choose the same size, 2×, 4×, 8×, or a long side up to 16384 px. It is drawn and compressed a strip at a time, so even a very large layer uses little memory and is a small file (an 11281 × 16384 layer was about 1 MB), though the program you open it in must hold the whole bitmap. Cancel any time.
+   - **Route layer (PNG):** the line alone, at the **line width** you set (metres on the ground), on a transparent RGBA canvas, framed exactly like the heightmap. Choose the same size, 2×, 4×, 8×, or a long side up to 16384 px. It is drawn and compressed a strip at a time, so even a very large layer uses little memory and is a small file (an 11281 × 16384 layer was about 1 MB), though the program you open it in must hold the whole bitmap. Cancel any time.
    - **SVG and DXF:** the route as vector polylines, in millimetres of the finished carve once you enter a carve size (otherwise heightmap pixels), in the same frame as the heightmap. SVG has its origin top-left; DXF (AutoCAD R12) bottom-left, Y up. An optional job-border rectangle and four corner marks (L brackets, on their own layer) span exactly the heightmap's extent: select them with the route, scale the group to the heightmap size with the aspect ratio locked, then delete them. DXF is usually the safer choice for Vectric or Carbide Create; check the size on import. These use the cleaned route, so cleaning first gives a much lighter file.
 
 **Advanced** (collapsed): the elevation source (Auto picks USGS 3DEP inside the US, AWS Terrain Tiles elsewhere), the max output size, and a reload button.
 
-The preview is 8-bit for display only; the export keeps the bit depth you pick. Settings are also written into the PNG as text chunks (source, bounds, elevation window, metres per grey level, route settings).
+The preview is 8-bit for display only; the export keeps the bit depth you pick. Settings are also written into the PNG as text chunks (source, bounds, elevation window, metres per grey level, height curve).
 
 The map has a layer switcher (street, topographic, satellite, USGS topo) and a **Theme** button (Auto / Light / Dark). In dark mode, drawn maps are inverted and satellite imagery is only dimmed.
 
@@ -57,7 +57,7 @@ No build step: edit the files and reload. Serve the folder (`python3 -m http.ser
 | `index.html`, `css/style.css` | Page and styles |
 | `js/geo.js` | Region maths: ground size, source choice, Terrarium zoom, size cap |
 | `js/sources.js` | 3DEP and Terrarium fetchers, stitching, resampling to a ground-correct grid |
-| `js/heightmap.js` | Elevation to grey mapping, route burn, PNG encoders (in-memory 16/8-bit and RGBA, and a streaming one) |
+| `js/heightmap.js` | Elevation to grey mapping, height curve, PNG encoders (in-memory 16/8-bit and RGBA, and a streaming one) |
 | `js/track.js` | GPX/TCX parsing, route clean-up, point-edit operations, route rasterizing (whole image or a strip at a time) |
 | `js/vector.js` | SVG and DXF export of the route |
 | `js/app.js` | Map, UI wiring |

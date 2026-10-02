@@ -18,10 +18,9 @@ const srv = http.createServer((q, r) => { const p = path.join(root, q.url.split(
   });
   const pg = await ctx.newPage(); await pg.addInitScript(() => { window.__MAPNC_FREE_PANES = true; }); const errs = []; pg.on('pageerror', e => errs.push(e.message));
   const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
-  await pg.goto('http://localhost:8131/?sample=off'); await pg.waitForTimeout(500);
+  await pg.goto('http://localhost:8131/'); await pg.waitForSelector('#track-info:not([hidden])');
 
   // --- sample route
-  await pg.click('#track-sample'); await pg.waitForSelector('#track-info:not([hidden])');
   const info = await pg.locator('#track-info').innerText(); check('sample loads', /12\.\d km, 4360 points/.test(info), info);
   const grid = async () => (await pg.locator('#info-grid').innerText());
   const gridWH = async () => (await grid()).match(/(\d+) × (\d+)/).slice(1).map(Number);
@@ -42,7 +41,6 @@ const srv = http.createServer((q, r) => { const p = path.join(root, q.url.split(
   await pg.fill('#carve-size', '12'); const carve = await pg.locator('#out-carve').innerText(); check('carve readout 12 in', /0\.1\d\d mm per pixel/.test(carve), carve);
   await pg.waitForSelector('#result-info:not([hidden])', { timeout: 120000 });
   check('3DEP asked for cubic when upscaling', depReq.length > 0 && depReq.every(r => r.interp === 'RSP_CubicConvolution'), `${depReq.length} requests, sizes ${depReq.map(r => r.w + 'x' + r.h).join(' ')}`);
-  console.log('   route readout:', (await pg.locator('#route-px').innerText()));
   const [d] = await Promise.all([pg.waitForEvent('download'), pg.click('#export-btn')]); await d.saveAs(S + '/sample16.png');
   const [d2] = await Promise.all([pg.waitForEvent('download'), pg.click('#export-route-btn')]); await d2.saveAs(S + '/samplelayer.png');
   fs.writeFileSync(S + '/info5.json', JSON.stringify({ W, H, b: await pg.evaluate(() => window.MapNC.elevation.bounds), min: await pg.evaluate(() => window.MapNC.elevation.min), max: await pg.evaluate(() => window.MapNC.elevation.max) }));

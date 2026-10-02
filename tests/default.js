@@ -13,7 +13,6 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.click('#track-clear');
   check('Clear route hides info, controls, polyline', !(await pg.locator('#track-info').isVisible()) && !(await pg.locator('#track-clear').isVisible()) && (await pg.evaluate(() => document.querySelectorAll('.leaflet-overlay-pane path').length === 1)));
   check('region kept after clearing', !!(await pg.evaluate(() => window.MapNC.region())));
-  await pg.click('#track-sample'); await pg.waitForSelector('#track-info:not([hidden])'); check('sample can be reloaded', true);
   const pg2 = await (await b.newContext()).newPage(); await pg2.goto('http://localhost:8140/?sample=off'); await pg2.waitForTimeout(800);
   check('?sample=off starts empty', !(await pg2.locator('#track-info').isVisible()) && !(await pg2.evaluate(() => window.MapNC.region())));
   const pg3 = await (await b.newContext()).newPage(); pg3.on('pageerror', e => errs.push(e.message)); await pg3.route('**/samples/**', r => r.fulfill({ status: 404 }));
