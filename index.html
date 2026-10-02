@@ -198,9 +198,9 @@
             <dt>Per grey level</dt><dd id="hm-level">–</dd>
             <dt>Clipped</dt><dd id="hm-clip">–</dd>
           </dl>
-          <label class="inline" id="route-guide-wrap" hidden><input type="checkbox" id="route-guide" checked> Show route on preview</label>
-          <canvas id="preview"></canvas>
-          <p class="hint">Preview is 8-bit for display only. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
+          <label class="inline" id="route-guide-wrap" hidden><input type="checkbox" id="route-guide" checked> Show route on the heightmap view</label>
+          <div class="row"><button id="show-hm" type="button">View heightmap</button></div>
+          <p class="hint">The view is 8-bit for display only. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
         </div>
       </div>
     </details>
@@ -344,7 +344,17 @@
       </ul>
     </div>
   </aside>
-  <div id="map" aria-label="Map"></div>
+  <div id="stage">
+    <div id="map" aria-label="Map"></div>
+    <div id="hm-view" hidden>
+      <canvas id="hm-canvas" aria-label="Heightmap"></canvas>
+      <div id="hm-readout" hidden role="status"></div>
+    </div>
+    <div id="view-switch" role="group" aria-label="Main view">
+      <button type="button" id="view-map" aria-pressed="true">Map</button>
+      <button type="button" id="view-hm" aria-pressed="false" disabled>Heightmap</button>
+    </div>
+  </div>
 
   <script src="vendor/leaflet.js"></script>
   <script src="vendor/geotiff.js"></script>

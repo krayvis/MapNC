@@ -585,8 +585,44 @@
     $('export-section').hidden = !on;
     $('hm-empty').hidden = on;
     $('export-empty').hidden = on;
+    if (!on) setView('map');
+    updateViewSwitch();
     syncVectorUi();
   }
+
+  // ---- main view: map or heightmap ------------------------------------------------------------
+  let view = 'map';
+  function updateViewSwitch() {
+    $('view-hm').disabled = !elevation || !!edit.on;
+    $('show-hm').disabled = $('view-hm').disabled;
+  }
+  function setView(v) {
+    if (v === 'hm' && (!elevation || !grey || edit.on)) v = 'map';
+    view = v;
+    $('map').hidden = v === 'hm';
+    $('hm-view').hidden = v !== 'hm';
+    $('view-map').setAttribute('aria-pressed', String(v === 'map'));
+    $('view-hm').setAttribute('aria-pressed', String(v === 'hm'));
+    if (v === 'hm') drawPreview(); else map.invalidateSize();
+  }
+  $('view-map').addEventListener('click', () => setView('map'));
+  $('view-hm').addEventListener('click', () => setView('hm'));
+  $('show-hm').addEventListener('click', () => setView('hm'));
+  let viewTimer = null;
+  window.addEventListener('resize', () => { clearTimeout(viewTimer); viewTimer = setTimeout(() => { if (view === 'hm' && elevation && grey) drawPreview(); }, 150); });
+  // Elevation and position under the pointer.
+  $('hm-canvas').addEventListener('pointermove', (ev) => {
+    const e = elevation, out = $('hm-readout');
+    if (!e) return;
+    const r = $('hm-canvas').getBoundingClientRect(), s = Math.min(r.width / e.width, r.height / e.height);
+    const px = (ev.clientX - r.left - (r.width - e.width * s) / 2) / s, py = (ev.clientY - r.top - (r.height - e.height * s) / 2) / s;
+    if (px < 0 || py < 0 || px >= e.width || py >= e.height) { out.hidden = true; return; }
+    const v = e.data[Math.floor(py) * e.width + Math.floor(px)], b = e.bounds;
+    out.textContent = (v === v ? v.toFixed(1) + ' m' : 'no data') + ' · ' +
+      fmtDeg({ lat: b.north - py / e.height * (b.north - b.south), lng: b.west + px / e.width * (b.east - b.west) });
+    out.hidden = false;
+  });
+  $('hm-canvas').addEventListener('pointerleave', () => { $('hm-readout').hidden = true; });
 
   function resetResult() {
     elevation = null;
@@ -733,7 +769,7 @@
 
   // 8-bit display only: the export is encoded from `grey.data` at full depth.
   function drawPreview() {
-    const e = elevation, c = $('preview');
+    const e = elevation, c = $('hm-canvas');
     c.width = e.width; c.height = e.height;
     const img = new ImageData(e.width, e.height);
     const shift = grey.bits === 16 ? 8 : 0;
@@ -747,7 +783,8 @@
     if (track && $('route-guide').checked) {
       // Guide line: about 2 screen pixels wide however large the grid is. Not part of any export.
       ctx.strokeStyle = '#e11d48';
-      ctx.lineWidth = 2 * e.width / (c.clientWidth || 300);
+      const st = $('stage'), shownW = Math.max(100, Math.min(st.clientWidth - 32, (st.clientHeight - 72) * e.width / e.height));
+      ctx.lineWidth = 2 * e.width / shownW;
       ctx.lineJoin = ctx.lineCap = 'round';
       for (const seg of Track.toPixels(shown(), e.bounds, e.width, e.height)) {
         ctx.beginPath();
@@ -1035,6 +1072,8 @@
     edit.on = on && !!track;
     if (edit.on) setDrawing(false);
     edit.drag = null;
+    if (edit.on) setView('map');
+    updateViewSwitch();
     $('main-view').hidden = edit.on;               // the sidebar becomes the editor while editing
     $('edit-view').hidden = !edit.on;
     $('panel').scrollTop = 0;
