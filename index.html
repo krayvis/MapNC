@@ -222,6 +222,21 @@
             <button id="export-btn" type="button">Export PNG</button>
           </div>
           <p id="export-status" class="hint" role="status"></p>
+          <h3>3D mesh (STL)</h3>
+          <p class="hint">An alternative to the PNG for CAD/CAM programs that reduce a PNG to 8 bits (Carbide Create does). The mesh keeps the full precision of the elevation data and uses the heightmap step's range, curve and invert. Needs a carve size under Output size.</p>
+          <div class="row">
+            <label class="field">Relief height (mm)
+              <input id="stl-relief" type="number" min="0.1" step="any" value="12">
+            </label>
+            <label class="field">Base thickness (mm)
+              <input id="stl-base" type="number" min="0" step="any" value="3">
+            </label>
+          </div>
+          <label class="field">Mesh detail (points on the long side)
+            <input id="stl-detail" type="number" min="16" max="2000" step="1" value="500">
+          </label>
+          <p id="stl-info" class="hint"></p>
+          <div class="row"><button id="export-stl-btn" type="button" disabled>Export STL</button></div>
         </div>
       </div>
     </details>
@@ -418,6 +433,7 @@
   <script src="js/heightmap.js"></script>
   <script src="js/track.js"></script>
   <script src="js/contours.js"></script>
+  <script src="js/stl.js"></script>
   <script src="js/osm.js"></script>
   <script src="js/terrain3d.js"></script>
   <script src="js/vector.js"></script>

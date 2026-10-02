@@ -67,6 +67,12 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.waitForTimeout(100);
   await pg.evaluate(() => { document.getElementById('pane-extras').open = true; }); await pg.waitForTimeout(200);
   check('opening the toppings step switches to the heightmap view', (await pg.getAttribute('#view-hm', 'aria-pressed')) === 'true');
+  // STL mesh
+  const stlInfo = await txt('stl-info'); check('STL info gives size and triangle count', /million triangles/.test(stlInfo), stlInfo);
+  await pg.fill('#stl-detail', '60');
+  const stl = await (async () => { const [d] = await Promise.all([pg.waitForEvent('download', { timeout: 60000 }), pg.click('#export-stl-btn')]); const out = S + '/ct_m.stl'; await d.saveAs(out); return { name: d.suggestedFilename(), buf: fs.readFileSync(out) }; })();
+  const nTri = stl.buf.readUInt32LE(80);
+  check('STL file is binary with a consistent size', stl.buf.length === 84 + 50 * nTri && nTri > 1000 && /\.stl$/.test(stl.name), stl.name + ' ' + nTri);
   // Layered map
   await pg.click('#tab-layers');
   check('layers export enabled with elevation and a carve size', !(await pg.locator('#layers-svg-btn').isDisabled()), await txt('layers-info'));

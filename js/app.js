@@ -1258,6 +1258,7 @@
     updateOsmInfo();
     updateRouteExportInfo();
     updateLayersUi();
+    updateStlUi();
   }
   ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
   $('route-width').addEventListener('input', updateRouteExportInfo);
@@ -1419,6 +1420,40 @@
   }
   $('export-svg-btn').addEventListener('click', () => vectorExport('svg'));
   $('export-dxf-btn').addEventListener('click', () => vectorExport('dxf'));
+
+  // ---- STL mesh export (full-precision terrain for programs that reduce a PNG to 8 bits) ----------
+  const STL = window.MapNCStl;
+  function stlPlan() {
+    if (!elevation) return { why: 'Waiting for the elevation data.' };
+    const mm = carveLongMm();
+    if (!mm) return { why: 'Enter a carve size under Output size: the mesh is built at that size.' };
+    const relief = parseFloat($('stl-relief').value), base = parseFloat($('stl-base').value), detail = Math.round(parseFloat($('stl-detail').value));
+    if (!(relief > 0)) return { why: 'Enter a relief height.' };
+    if (!(base >= 0)) return { why: 'Enter a base thickness (0 or more).' };
+    if (!(detail >= 16)) return { why: 'Use at least 16 points on the long side.' };
+    const W = elevation.width, H = elevation.height, long = Math.min(Math.max(W, H), Math.min(detail, 2000));
+    const w = Math.max(2, Math.round(W >= H ? long : long * W / H)), h = Math.max(2, Math.round(H > W ? long : long * H / W));
+    const k = mm / Math.max(W, H), tris = STL.triangleCount(w, h);
+    return { relief, base, w, h, tris, bytes: 84 + 50 * tris, widthMm: W * k, heightMm: H * k };
+  }
+  function updateStlUi() {
+    const pl = stlPlan();
+    $('export-stl-btn').disabled = !!pl.why;
+    $('stl-info').textContent = pl.why || pl.w + ' × ' + pl.h + ' points, ' + (pl.tris / 1e6).toFixed(2) + ' million triangles, about ' + (pl.bytes / 1048576).toFixed(0) + ' MB. ' +
+      pl.widthMm.toFixed(1) + ' × ' + pl.heightMm.toFixed(1) + ' mm, ' + (pl.base + pl.relief).toFixed(1) + ' mm tall.';
+  }
+  ['stl-relief', 'stl-base', 'stl-detail', 'carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', updateStlUi));
+  $('export-stl-btn').addEventListener('click', () => {
+    const pl = stlPlan();
+    if (pl.why) { $('export-status').textContent = pl.why; return; }
+    const g = HM.toGrey(elevation.data, Object.assign(currentParams(), { bits: 16 }));
+    const t = new Float32Array(g.data.length);
+    for (let i = 0; i < t.length; i++) t[i] = elevation.data[i] !== elevation.data[i] ? 0 : g.data[i] / g.maxVal;
+    const mesh = STL.resample(t, elevation.width, elevation.height, pl.w, pl.h);
+    const buf = STL.buildStl(mesh, pl.w, pl.h, { widthMm: pl.widthMm, heightMm: pl.heightMm, reliefMm: pl.relief, baseMm: pl.base });
+    const name = saveBlob(new Blob([buf], { type: 'model/stl' }), exportBaseName(exportGrid()) + '_' + pl.w + 'x' + pl.h + '.stl');
+    $('export-status').textContent = 'Saved ' + name + ' (' + (buf.byteLength / 1048576).toFixed(1) + ' MB, millimetres, Z up).';
+  });
 
   // ---- layered map (a stack of constant-height outlines) -----------------------------------
   /** Plan for the layered export from the inputs, or { why } when something is missing. */

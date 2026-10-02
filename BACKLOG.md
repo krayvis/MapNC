@@ -22,7 +22,6 @@ Worth doing, no date.
 
 Unsorted, unevaluated.
 
-- STL / mesh export.
 - Georeferencing sidecar (world file or JSON with bounds and Z range) so the heightmap can be placed back on a map.
 - Cross-section / profile view along the route.
 - Sea-level clamp (flatten below 0 m so water is a flat pool). For islands, consider optional bathymetry depth (carve the sea below the waterline), which is wanted for the ocean even though lakes stay flat.
