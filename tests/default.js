@@ -1,0 +1,22 @@
+const { chromium } = require('./lib.js').playwright;
+const http = require('http'), fs = require('fs'), path = require('path');
+http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.url.split('?')[0] === '/' ? 'index.html' : decodeURIComponent(q.url.split('?')[0])); fs.readFile(p, (e, d) => { if (e) { r.statusCode = 404; r.end(); } else { r.setHeader('Content-Type', {js:'text/javascript',css:'text/css',html:'text/html',gpx:'application/gpx+xml'}[p.split('.').pop()]||'image/png'); r.end(d); } }); }).listen(8140, async function () {
+  const b = await chromium.launch(require('./lib.js').launchOpts);
+  const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
+  const pg = await (await b.newContext({ viewport: { width: 1300, height: 800 } })).newPage(); const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  await pg.goto('http://localhost:8140/'); await pg.waitForSelector('#track-info:not([hidden])', { timeout: 10000 });
+  check('sample loaded by default', /Sierra Buttes/.test(await pg.locator('#track-info').innerText()), await pg.locator('#track-info').innerText());
+  const r = await pg.evaluate(() => window.MapNC.region()); check('region fitted to sample', r && r.south < 39.5935 && r.north > 39.6109 && r.west < -120.66224 && r.east > -120.64684);
+  check('map moved to the sample', await pg.evaluate(() => Math.abs(window.MapNC.map.getCenter().lat - 39.6) < 0.05));
+  check('fetch enabled, route controls available', !(await pg.locator('#fetch-btn').isDisabled()));
+  check('polyline on map', await pg.evaluate(() => document.querySelectorAll('.leaflet-overlay-pane path').length >= 2));
+  await pg.click('#track-clear');
+  check('Clear route hides info, controls, polyline', !(await pg.locator('#track-info').isVisible()) && !(await pg.locator('#track-clear').isVisible()) && (await pg.evaluate(() => document.querySelectorAll('.leaflet-overlay-pane path').length === 1)));
+  check('region kept after clearing', !!(await pg.evaluate(() => window.MapNC.region())));
+  await pg.click('#track-sample'); await pg.waitForSelector('#track-info:not([hidden])'); check('sample can be reloaded', true);
+  const pg2 = await (await b.newContext()).newPage(); await pg2.goto('http://localhost:8140/?sample=off'); await pg2.waitForTimeout(800);
+  check('?sample=off starts empty', !(await pg2.locator('#track-info').isVisible()) && !(await pg2.evaluate(() => window.MapNC.region())));
+  const pg3 = await (await b.newContext()).newPage(); pg3.on('pageerror', e => errs.push(e.message)); await pg3.route('**/samples/**', r => r.fulfill({ status: 404 }));
+  await pg3.goto('http://localhost:8140/'); await pg3.waitForTimeout(800); check('missing sample fails quietly (no error shown)', !(await pg3.locator('#track-error').isVisible()));
+  console.log('page errors:', errs); await b.close(); process.exit(0);
+});
