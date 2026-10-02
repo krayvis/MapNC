@@ -22,6 +22,8 @@ Output files (PNG, DXF, SVG, screenshots) go to a fresh temp folder; set `MAPNC_
 | `aspect.js` | Aspect-ratio lock, moving and resizing the rectangle, centre-resize modifiers |
 | `auto.js` | Automatic background loading, cancellation, resolution modes, exports (16-bit and 8-bit PNG) |
 | `cleanui.js` | Clean-up controls in the sidebar |
+| `contours.js` | Contour tracing (cone, plane, no-data holes, saddles) and the extra SVG/DXF layers (no browser) |
+| `contourui.js` | Contour controls and files in the browser, with and without a route |
 | `edit.js` | The point editor: dragging, adding, deleting, undo/redo, touch, the editing view |
 | `exports.js` | Route layer PNG, SVG and DXF |
 | `smoke5.js` | End-to-end smoke test of the whole page |

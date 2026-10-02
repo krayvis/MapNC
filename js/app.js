@@ -448,9 +448,8 @@
     $('track-fit').hidden = false;
     $('track-clear').hidden = false;
     $('route-guide-wrap').hidden = false;
-    $('route-export').hidden = false;
     $('pane-clean').hidden = false;
-    updateRouteExportInfo();
+    syncVectorUi();
   }
 
   // ---- route clean-up ----------------------------------------------------------------------
@@ -558,7 +557,8 @@
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
     $('track-file').value = '';
-    ['track-info', 'track-fit', 'track-clear', 'route-guide-wrap', 'route-export', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
+    ['track-info', 'track-fit', 'track-clear', 'route-guide-wrap', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
+    syncVectorUi();
     trackError('');
     if (elevation) recompute();
   });
@@ -585,6 +585,7 @@
     $('export-section').hidden = !on;
     $('hm-empty').hidden = on;
     $('export-empty').hidden = on;
+    syncVectorUi();
   }
 
   function resetResult() {
@@ -661,6 +662,7 @@
       controller = null;
       setFetching(false);
       elevation = e;
+      contourDefault();
       setStatus(e.sourceLabel + ' · ' + e.width + ' × ' + e.height + ' px' + (e.note ? ' — ' + e.note : ''));
       $('res-range').textContent = e.min.toFixed(1) + ' to ' + e.max.toFixed(1) + ' m (' + (e.max - e.min).toFixed(1) + ' m range)';
       $('res-nodata').textContent = e.nodata ? (100 * e.nodata / e.data.length).toFixed(1) + '% (magenta in preview)' : 'none';
@@ -1100,7 +1102,7 @@
 
   const LAYER_MIN_PX = 64, LAYER_MAX_PX = 16384;
   const ROUTE_RGB = [225, 29, 72];
-  const Vec = window.MapNCVector;
+  const Vec = window.MapNCVector, Contours = window.MapNCContours;
 
   /** The heightmap's grid: from the loaded data when there is some, otherwise from the plan. null if unknown. */
   function exportGrid() {
@@ -1130,7 +1132,11 @@
   const lineWidthM = () => { const v = parseFloat($('route-width').value); return v > 0 ? v : 10; };
 
   function updateRouteExportInfo() {
-    if (!track) return;
+    const mm = carveLongMm();
+    $('vec-hint').textContent = mm
+      ? 'Units: millimetres of the finished carve (long side ' + mm.toFixed(1) + ' mm). Origin: top-left in the SVG, bottom-left in the DXF. DXF is usually the safer choice for Vectric or Carbide Create; check the size on import.'
+      : 'Units: heightmap pixels. Enter a carve size under Output size to export in millimetres.';
+    if (!track) { $('layer-info').textContent = 'Load a route to export a route layer.'; return; }
     $('layer-px-wrap').hidden = $('layer-size').value !== 'px';
     const d = layerDims();
     if (!d) { $('layer-info').textContent = 'Draw a region first.'; return; }
@@ -1138,10 +1144,52 @@
     $('layer-info').textContent = d.W + ' × ' + d.H + ' px (' + (d.pm >= 1 ? d.pm.toFixed(2) + ' m' : (d.pm * 100).toFixed(d.pm < 0.1 ? 1 : 0) + ' cm') + ' per pixel), line about ' +
       Math.max(1, Math.round(lineWidthM() / d.pm)) + ' px wide.' + (d.clamped ? ' Limited to ' + LAYER_MAX_PX + ' px.' : '') +
       (gb >= 0.25 ? ' Opening it in another program needs about ' + gb.toFixed(1) + ' GB of memory.' : '');
-    const mm = carveLongMm();
-    $('vec-hint').textContent = mm
-      ? 'Units: millimetres of the finished carve (long side ' + mm.toFixed(1) + ' mm). Origin: top-left in the SVG, bottom-left in the DXF. DXF is usually the safer choice for Vectric or Carbide Create; check the size on import.'
-      : 'Units: heightmap pixels. Enter a carve size under Output size to export in millimetres.';
+  }
+
+  // ---- contour lines (vector export only; they never change the heightmap) -----------------------------
+  const MAX_CONTOUR_LEVELS = 400;
+  let contourTouched = false, contourCache = null, contourTimer = null;
+  function contourDefault() {
+    contourCache = null;
+    if (!elevation || contourTouched) return;
+    $('contour-m').value = Contours.niceInterval(elevation.max - elevation.min, 15);
+  }
+  /** Contours for the current elevation and interval, or { error }. Cached until either changes. */
+  function contourResult() {
+    const iv = parseFloat($('contour-m').value);
+    if (!elevation) return { error: 'Waiting for the elevation data.' };
+    if (!(iv > 0)) return { error: 'Enter a contour interval.' };
+    if ((elevation.max - elevation.min) / iv > MAX_CONTOUR_LEVELS) return { error: 'That would be over ' + MAX_CONTOUR_LEVELS + ' levels. Use a larger interval.' };
+    if (!contourCache || contourCache.elevation !== elevation || contourCache.iv !== iv) {
+      contourCache = { elevation, iv, result: Contours.contourLines(elevation.data, elevation.width, elevation.height, iv) };
+    }
+    return contourCache.result;
+  }
+  function updateContourInfo() {
+    clearTimeout(contourTimer);
+    if (!$('vec-contours').checked) return;
+    const info = $('contour-info');
+    info.textContent = elevation ? 'Working…' : 'Waiting for the elevation data.';
+    contourTimer = setTimeout(() => {
+      const r = contourResult();
+      if (r.error) { info.textContent = r.error; return; }
+      const n = r.levels.reduce((a, l) => a + l.lines.length, 0), iv = parseFloat($('contour-m').value);
+      info.textContent = n
+        ? n + ' lines on ' + r.levels.length + ' levels (' + (iv * 3.28084).toFixed(iv * 3.28084 < 10 ? 1 : 0) + ' ft interval).'
+        : 'No contours at this interval: the ground is flatter than that.';
+    }, 250);
+  }
+  $('contour-m').addEventListener('input', () => { contourTouched = true; updateContourInfo(); });
+  $('vec-contours').addEventListener('change', updateContourInfo);
+
+  /** Shows the layer export once there is a route or elevation; contour controls wait for elevation. */
+  function syncVectorUi() {
+    $('route-export').hidden = !(track || elevation);
+    $('vec-contours').disabled = !elevation;
+    $('contour-need').hidden = !!elevation;
+    $('export-route-btn').disabled = !track;
+    updateContourInfo();
+    updateRouteExportInfo();
   }
   ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
   $('route-width').addEventListener('input', updateRouteExportInfo);
@@ -1208,16 +1256,28 @@
 
   function vectorExport(kind) {
     const grid = exportGrid();
-    if (!track || !grid) return;
+    if (!grid) return;
+    const wantContours = $('vec-contours').checked && !$('vec-contours').disabled;
+    if (!track && !wantContours) { routeStatus('Nothing to export: load a route or turn on contour lines.'); return; }
+    const layers = [];
+    if (wantContours) {
+      const r = contourResult();
+      if (r.error) { routeStatus('Contours: ' + r.error); return; }
+      const pick = (idx) => [].concat(...r.levels.filter((l) => l.index === idx).map((l) => l.lines));
+      const minor = pick(false), major = pick(true);
+      if (minor.length) layers.push({ name: 'contours', color: '#9a6b3c', aci: 30, width: 0.4, lines: minor });
+      if (major.length) layers.push({ name: 'contours_index', color: '#5b3a17', aci: 32, width: 0.9, lines: major });
+    }
     const mm = carveLongMm(), gs = Geo.groundSize(grid.bounds), longM = Math.max(gs.widthM, gs.heightM);
     const o = {
       mmPerPx: mm ? mm / Math.max(grid.W, grid.H) : 0,
       lineWidth: mm ? lineWidthM() * (mm / longM) : 0,     // only how thick the SVG line looks; CAM uses the centre line
-      border: $('vec-border').checked, marks: $('vec-marks').checked, title: track.name || 'MapNC route',
+      border: $('vec-border').checked, marks: $('vec-marks').checked, title: (track && track.name) || 'MapNC', layers,
     };
     const text = kind === 'svg' ? Vec.toSvg(shown(), grid.bounds, grid.W, grid.H, o) : Vec.toDxf(shown(), grid.bounds, grid.W, grid.H, o);
     const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });
-    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_route.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').');
+    const what = [track ? 'route' : '', layers.length ? 'contours' : ''].filter(Boolean).join('-') || 'frame';
+    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_' + what + '.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').');
   }
   $('export-svg-btn').addEventListener('click', () => vectorExport('svg'));
   $('export-dxf-btn').addEventListener('click', () => vectorExport('dxf'));

@@ -222,11 +222,11 @@
           <p id="export-status" class="hint" role="status"></p>
         </div>
         <div id="route-export" hidden>
-          <h3>Route export</h3>
-          <p class="hint">These need only the region and the route, not the elevation data.</p>
+          <h3>Layer export</h3>
+          <p class="hint">The route layer needs only the region and the route. Contour lines need the elevation data.</p>
           <div class="tabs" role="tablist" aria-label="Route export format">
             <button type="button" role="tab" id="tab-png" aria-controls="tabpanel-png" aria-selected="true">PNG layer</button>
-            <button type="button" role="tab" id="tab-vec" aria-controls="tabpanel-vec" aria-selected="false" tabindex="-1">Vector (SVG / DXF)</button>
+            <button type="button" role="tab" id="tab-vec" aria-controls="tabpanel-vec" aria-selected="false" tabindex="-1">Vector layers (SVG / DXF)</button>
           </div>
           <div id="tabpanel-png" role="tabpanel" aria-labelledby="tab-png">
           <label class="field">Line width (m on the ground)
@@ -249,9 +249,18 @@
           <p class="hint">Transparent PNG with a red line of the width above, framed exactly like the heightmap. A mostly empty image compresses to almost nothing, and it is drawn a strip at a time, so even very large sizes are fine to export (but your CAD/CAM or image editor must hold the whole bitmap to open it).</p>
           </div>
           <div id="tabpanel-vec" role="tabpanel" aria-labelledby="tab-vec" hidden>
+          <label class="inline"><input type="checkbox" id="vec-contours" disabled> Contour lines</label>
+          <p id="contour-need" class="hint">Waiting for the elevation data.</p>
+          <div class="dep" data-for="vec-contours" hidden>
+            <label class="field">Contour interval (m)
+              <input id="contour-m" type="number" min="0.5" step="any">
+            </label>
+            <p id="contour-info" class="hint"></p>
+            <p class="hint">Every 5th line goes on its own layer (CONTOURS_INDEX) so it can be cut deeper or drawn heavier.</p>
+          </div>
           <label class="inline"><input type="checkbox" id="vec-border" checked> Include a job-border rectangle</label>
           <label class="inline"><input type="checkbox" id="vec-marks" checked> Include corner marks (L brackets at the four corners)</label>
-          <p class="hint">Select the route together with the border or corner marks and scale the group: the border or marks span exactly the heightmap's extent, so scale that group to the heightmap's width and height (keep the aspect ratio locked), then delete them.</p>
+          <p class="hint">Select the layers together with the border or corner marks and scale the group: the border or marks span exactly the heightmap's extent, so scale that group to the heightmap's width and height (keep the aspect ratio locked), then delete them.</p>
           <div class="row">
             <button id="export-svg-btn" type="button">Export SVG</button>
             <button id="export-dxf-btn" type="button">Export DXF</button>
@@ -343,6 +352,7 @@
   <script src="js/sources.js"></script>
   <script src="js/heightmap.js"></script>
   <script src="js/track.js"></script>
+  <script src="js/contours.js"></script>
   <script src="js/vector.js"></script>
   <script src="js/app.js"></script>
 </body>
