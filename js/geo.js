@@ -145,7 +145,75 @@
     };
   }
 
-  const api = { LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, pickTerrariumZoom, planSource };
+
+  // ---- rectangle editing (aspect lock, move) -------------------------------------------------
+  // Ratios are GROUND ratios, east-west metres : north-south metres, i.e. what is physically carved, not map
+  // pixels (Web Mercator stretches east-west with latitude). All results keep the same ground-size convention as
+  // groundSize(): longitude shrinks with cos(latitude at the rectangle's centre).
+
+  const MAX_LAT = 85;
+  const clampLat = (v) => Math.max(-MAX_LAT, Math.min(MAX_LAT, v));
+
+  /** East-west : north-south ground ratio of a box. */
+  function groundRatio(b) {
+    const g = groundSize(b);
+    return g.widthM / g.heightM;
+  }
+
+  /** Box of the given ground size centred on `c` ({lat, lng}); latitude is kept inside +/-85 degrees. */
+  function boxAround(c, widthM, heightM) {
+    const dLat = heightM / M_PER_DEG_LAT;
+    const lat = Math.max(-MAX_LAT + dLat / 2, Math.min(MAX_LAT - dLat / 2, c.lat));
+    const dLon = widthM / (M_PER_DEG_LON_EQ * Math.cos(lat * DEG));
+    return { south: lat - dLat / 2, north: lat + dLat / 2, west: c.lng - dLon / 2, east: c.lng + dLon / 2 };
+  }
+
+  function centreOf(b) { return { lat: (b.south + b.north) / 2, lng: (b.west + b.east) / 2 }; }
+
+  /**
+   * Corner opposite `anchor`, dragged toward `point`, forced to ground ratio `ratio` (w/h). The box always
+   * reaches at least as far as the pointer on both axes (so the corner stays under the finger and the box grows
+   * with the drag rather than lagging behind it).
+   */
+  function constrainCorner(anchor, point, ratio) {
+    const sx = point.lng >= anchor.lng ? 1 : -1, sy = point.lat >= anchor.lat ? 1 : -1;
+    const dLonDeg = Math.abs(point.lng - anchor.lng), dy = Math.abs(point.lat - anchor.lat) * M_PER_DEG_LAT;
+    let cosLat = Math.cos(anchor.lat * DEG), w = 0, h = 0;
+    for (let i = 0; i < 3; i++) {                    // cos(lat) depends on the box's own mid-latitude; settle it
+      w = Math.max(dLonDeg * M_PER_DEG_LON_EQ * cosLat, dy * ratio);
+      h = w / ratio;
+      cosLat = Math.cos((anchor.lat + (sy * h) / M_PER_DEG_LAT / 2) * DEG);
+    }
+    return { lat: clampLat(anchor.lat + (sy * h) / M_PER_DEG_LAT), lng: anchor.lng + (sx * w) / (M_PER_DEG_LON_EQ * cosLat) };
+  }
+
+  /**
+   * Re-shape a box to a ground ratio about its centre. mode 'inside' shrinks one side to fit within the old box;
+   * 'outside' grows one side so the old box fits within the new one (used when the box must keep containing a
+   * route); 'area' keeps the ground area (same size, new shape; used when the ratio changes or is swapped).
+   */
+  function reshapeBounds(b, ratio, mode) {
+    const g = groundSize(b);
+    let w;
+    if (mode === 'outside') w = Math.max(g.widthM, g.heightM * ratio);
+    else if (mode === 'area') w = Math.sqrt(g.widthM * g.heightM * ratio);
+    else w = Math.min(g.widthM, g.heightM * ratio);
+    return boxAround(centreOf(b), w, w / ratio);
+  }
+
+  /** Same ground size, new centre. Moving north or south must not change what is carved. */
+  function moveBounds(b, centre) {
+    const g = groundSize(b);
+    return boxAround(centre, g.widthM, g.heightM);
+  }
+
+  /** Parse "w:h" or numbers into a ratio, or null for free. */
+  function parseRatio(w, h) {
+    const a = Number(w), c = Number(h);
+    return a > 0 && c > 0 && Number.isFinite(a) && Number.isFinite(c) ? a / c : null;
+  }
+
+  const api = { groundRatio, boxAround, centreOf, constrainCorner, reshapeBounds, moveBounds, parseRatio, LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, pickTerrariumZoom, planSource };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCGeo = api;
 })(typeof self !== 'undefined' ? self : this);

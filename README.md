@@ -8,7 +8,7 @@ Static site, no build step: plain HTML, CSS and JavaScript.
 
 ## Use it
 
-1. **Draw a rectangle** on the map (drag a corner to resize), or load a **GPX/TCX** route, which fits the region to the track plus a margin.
+1. **Draw a rectangle** on the map. Drag a corner to resize, or the arrows handle in the middle to move it (moving keeps the ground size). Optionally lock an **aspect ratio** (presets, custom, or "lock current shape", with a swap button for portrait/landscape). The ratio is measured on the ground, so it is what you carve. Or load a **GPX/TCX** route, which fits the region to the track plus a margin (grown to the locked ratio if you set one).
 2. Pick an **elevation source** or leave it on Auto: USGS 3DEP inside the US (about 10 m), AWS Terrain Tiles elsewhere. The panel shows the active source and its approximate resolution.
 3. **Fetch elevation**, then choose the elevation range (auto or manual), vertical exaggeration, and 16-bit (default) or 8-bit output. The panel shows the range and the metres per grey level.
 4. With a route loaded, set the **line width** (metres on the ground), **raise/lower** amount (% of the grey range) and **profile** (rounded, uniform or V), then **Export PNG**. **Export route layer** saves the line alone as a transparent RGBA PNG on the same pixel grid.

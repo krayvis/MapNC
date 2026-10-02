@@ -23,9 +23,33 @@
         <button id="draw-btn" type="button">Draw rectangle</button>
         <button id="clear-btn" type="button" disabled>Clear</button>
       </div>
-      <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map. Drag a corner to resize.</p>
+      <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map.</p>
+      <p id="edit-hint" class="hint" hidden>Drag a corner to resize, or the arrows handle in the middle to move the whole rectangle.</p>
+      <div class="field">
+        <label for="aspect-select">Aspect ratio (on the ground)</label>
+        <div class="row">
+          <select id="aspect-select">
+            <option value="free" selected>Free</option>
+            <option value="1:1">1:1 (square)</option>
+            <option value="5:4">5:4 (8×10, 16×20)</option>
+            <option value="4:3">4:3</option>
+            <option value="3:2">3:2 (6×4, 12×8)</option>
+            <option value="7:5">7:5 (5×7)</option>
+            <option value="16:9">16:9</option>
+            <option value="custom">Custom…</option>
+            <option value="current">Lock current shape</option>
+          </select>
+          <button id="aspect-swap" type="button" disabled title="Swap width and height (portrait / landscape)" aria-label="Swap width and height">⇄</button>
+        </div>
+        <div class="row" id="aspect-custom" hidden>
+          <input id="aspect-w" type="number" min="0.01" step="any" value="1" aria-label="Aspect width">
+          <span class="colon">:</span>
+          <input id="aspect-h" type="number" min="0.01" step="any" value="1" aria-label="Aspect height">
+        </div>
+      </div>
       <dl id="region-info" class="info" hidden>
         <dt>Size</dt><dd id="info-size">–</dd>
+        <dt>Aspect</dt><dd id="info-aspect">–</dd>
         <dt>Corners</dt><dd id="info-corners">–</dd>
         <dt>Output grid</dt><dd id="info-grid">–</dd>
       </dl>

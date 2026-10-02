@@ -60,7 +60,8 @@
 
   mapEl.addEventListener('pointermove', (e) => {
     if (e.pointerId !== activePointer) return;
-    setBounds(Geo.normalizeBounds(anchor, map.mouseEventToLatLng(e)));
+    const point = map.mouseEventToLatLng(e);
+    setBounds(Geo.normalizeBounds(anchor, ratio ? Geo.constrainCorner(anchor, point, ratio) : point));
   });
 
   function endDrag(e) {
@@ -80,6 +81,8 @@
     if (rect) { rect.remove(); rect = null; }
     handles.forEach((h) => h.remove());
     handles = [];
+    if (moveHandle) { moveHandle.remove(); moveHandle = null; }
+    $('edit-hint').hidden = true;
     clearBtn.disabled = true;
     drawBtn.textContent = 'Draw rectangle';
     $('region-info').hidden = true;
@@ -99,42 +102,127 @@
     resetResult(); // the old result no longer matches the rectangle
     clearBtn.disabled = false;
     $('draw-hint').hidden = true;
+    $('edit-hint').hidden = false;
     refresh();
   }
 
-  // Corner handles: dragging one moves that corner and keeps the opposite one fixed.
+  // ---- handles: resize by corner, move by the centre handle ----------------------------------
+
+  const OPPOSITE = { sw: 'ne', se: 'nw', ne: 'sw', nw: 'se' };
+  const MOVE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg>';
+  let moveHandle = null;
+  let moveStart = null;    // bounds when a move began: its ground size is kept for the whole drag
+
   function cornerLatLngs() {
     return [
-      { key: 'sw', ll: L.latLng(bounds.south, bounds.west), opp: 'ne' },
-      { key: 'se', ll: L.latLng(bounds.south, bounds.east), opp: 'nw' },
-      { key: 'ne', ll: L.latLng(bounds.north, bounds.east), opp: 'sw' },
-      { key: 'nw', ll: L.latLng(bounds.north, bounds.west), opp: 'se' },
+      { key: 'sw', ll: L.latLng(bounds.south, bounds.west) },
+      { key: 'se', ll: L.latLng(bounds.south, bounds.east) },
+      { key: 'ne', ll: L.latLng(bounds.north, bounds.east) },
+      { key: 'nw', ll: L.latLng(bounds.north, bounds.west) },
     ];
   }
 
-  function syncHandles() {
-    const corners = cornerLatLngs();
-    if (handles.length === 0) {
-      handles = corners.map((c) => {
-        const m = L.marker(c.ll, {
-          draggable: true,
-          icon: L.divIcon({ className: '', html: '<div class="corner-handle"></div>', iconSize: [0, 0] }),
-        }).addTo(map);
-        m._corner = c;
-        m.on('drag', () => {
-          const opposite = cornerLatLngs().find((x) => x.key === m._corner.opp).ll;
-          setBounds(Geo.normalizeBounds(m.getLatLng(), opposite));
-        });
-        return m;
+  const isDragging = (m) => !!(m.dragging && m.dragging._draggable && m.dragging._draggable._moving);
+
+  function createHandles() {
+    handles = cornerLatLngs().map((c) => {
+      const m = L.marker(c.ll, {
+        draggable: true,
+        icon: L.divIcon({ className: '', html: '<div class="corner-handle"></div>', iconSize: [0, 0] }),
+      }).addTo(map);
+      m._key = c.key;
+      let fixed = null;                              // the opposite corner, fixed for the whole drag
+      m.on('dragstart', () => { fixed = cornerLatLngs().find((x) => x.key === OPPOSITE[m._key]).ll; });
+      m.on('drag', () => {
+        let pt = m.getLatLng();
+        if (ratio) pt = Geo.constrainCorner(fixed, pt, ratio);
+        m.setLatLng(pt);                             // keep the handle on the (possibly constrained) corner
+        // Dragging past the fixed corner flips which corner this handle is: relabel so no two handles collide.
+        const key = (pt.lat >= fixed.lat ? 'n' : 's') + (pt.lng >= fixed.lng ? 'e' : 'w');
+        const others = handles.filter((h) => h !== m);
+        const anchorHandle = others.find((h) => h._key === OPPOSITE[m._key]) || others[0];
+        const rest = ['sw', 'se', 'ne', 'nw'].filter((k) => k !== key && k !== OPPOSITE[key]);
+        m._key = key;
+        anchorHandle._key = OPPOSITE[key];
+        others.filter((h) => h !== anchorHandle).forEach((h, i) => { h._key = rest[i]; });
+        setBounds(Geo.normalizeBounds(fixed, pt));
       });
-    }
-    // Reposition every handle except the one being dragged (it already sits under the pointer).
-    handles.forEach((m) => {
-      const target = corners.find((c) => c.key === m._corner.key);
-      m._corner.opp = target.opp;
-      if (!m.dragging || !m.dragging._draggable || !m.dragging._draggable._moving) m.setLatLng(target.ll);
+      return m;
+    });
+
+    moveHandle = L.marker(Geo.centreOf(bounds) , {
+      draggable: true, zIndexOffset: 500,
+      icon: L.divIcon({ className: '', html: '<div class="move-handle" role="button" aria-label="Move rectangle">' + MOVE_ICON + '</div>', iconSize: [0, 0] }),
+    }).addTo(map);
+    moveHandle.on('dragstart', () => { moveStart = Object.assign({}, bounds); });
+    moveHandle.on('drag', () => {
+      const moved = Geo.moveBounds(moveStart, moveHandle.getLatLng());
+      moveHandle.setLatLng(Geo.centreOf(moved));     // stays put if the move was clamped at the latitude limit
+      setBounds(moved);
     });
   }
+
+  function syncHandles() {
+    if (handles.length === 0) createHandles();
+    const corners = cornerLatLngs();
+    // Reposition every handle except one being dragged (it already sits under the pointer).
+    handles.forEach((m) => { if (!isDragging(m)) m.setLatLng(corners.find((c) => c.key === m._key).ll); });
+    if (!isDragging(moveHandle)) moveHandle.setLatLng(Geo.centreOf(bounds));
+    updateMoveHandleVisibility();
+  }
+
+  // On a very small on-screen rectangle the centre handle would sit on top of the corner handles.
+  function updateMoveHandleVisibility() {
+    if (!moveHandle || !bounds || !moveHandle.getElement()) return;
+    const a = map.latLngToContainerPoint([bounds.north, bounds.west]), b = map.latLngToContainerPoint([bounds.south, bounds.east]);
+    moveHandle.getElement().classList.toggle('handle-hidden', Math.min(Math.abs(b.x - a.x), Math.abs(b.y - a.y)) < 64);
+  }
+  map.on('zoomend', updateMoveHandleVisibility);
+
+  // ---- aspect ratio ------------------------------------------------------------------------
+
+  let ratio = null;        // ground width : height to enforce, or null for free
+
+  function readRatio() {
+    const v = $('aspect-select').value;
+    if (v === 'free') return null;
+    if (v === 'custom') return Geo.parseRatio($('aspect-w').value, $('aspect-h').value);
+    const [w, h] = v.split(':');
+    return Geo.parseRatio(w, h);
+  }
+
+  function setCustom(w, h) {
+    $('aspect-select').value = 'custom';
+    $('aspect-w').value = w;
+    $('aspect-h').value = h;
+    $('aspect-custom').hidden = false;
+  }
+
+  // Changing the ratio keeps the rectangle's ground area and centre: same size, new shape.
+  function applyRatio() {
+    ratio = readRatio();
+    $('aspect-swap').disabled = ratio === null;
+    if (ratio && bounds) setBounds(Geo.reshapeBounds(bounds, ratio, 'area'));
+  }
+
+  $('aspect-select').addEventListener('change', () => {
+    if ($('aspect-select').value === 'current') {
+      if (!bounds) { $('aspect-select').value = 'free'; return; }
+      setCustom(Number(Geo.groundRatio(bounds).toFixed(3)), 1);   // freeze the present shape as a custom ratio
+    }
+    $('aspect-custom').hidden = $('aspect-select').value !== 'custom';
+    applyRatio();
+  });
+  ['aspect-w', 'aspect-h'].forEach((id) => $(id).addEventListener('change', applyRatio));
+
+  $('aspect-swap').addEventListener('click', () => {
+    if (ratio === null) return;
+    const v = $('aspect-select').value;
+    if (v === 'custom') setCustom($('aspect-h').value, $('aspect-w').value);
+    else { const [w, h] = v.split(':'); setCustom(h, w); }
+    applyRatio();
+  });
 
   // ---- readout -----------------------------------------------------------------------------
 
@@ -150,6 +238,7 @@
     $('region-info').hidden = false;
     $('source-info').hidden = false;
     $('info-size').textContent = fmtKm(g.widthM) + ' × ' + fmtKm(g.heightM);
+    $('info-aspect').textContent = (g.widthM / g.heightM).toFixed(2) + ' : 1' + (ratio ? ' (locked)' : '');
     $('info-corners').textContent = fmtDeg({ lat: bounds.north, lng: bounds.west }) + ' to ' + fmtDeg({ lat: bounds.south, lng: bounds.east });
     $('info-grid').textContent = plan.tooLarge ? '–' : plan.grid.width + ' × ' + plan.grid.height + ' px';
     $('info-source').textContent = plan.label + (plan.id === '3dep' && !plan.region ? ' (outside US coverage)' : '');
@@ -196,7 +285,8 @@
 
   function fitToTrack() {
     const margin = Math.max(0, parseFloat($('track-margin').value) || 0) / 100;
-    const b = Track.padBounds(Track.trackBounds(track), margin);
+    let b = Track.padBounds(Track.trackBounds(track), margin);
+    if (ratio) b = Geo.reshapeBounds(b, ratio, 'outside');   // grow to the ratio so the route stays inside
     setBounds(b);
     map.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [30, 30] });
     if (!widthTouched) {

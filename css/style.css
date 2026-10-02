@@ -84,6 +84,20 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
 /* Drawing: the map surface must own the drag gesture, or touch would pan/scroll the page instead. */
 #map.drawing { cursor: crosshair; touch-action: none; user-select: none; }
 
+.colon { align-self: center; font-weight: 600; }
+.row > select { flex: 1; min-width: 0; }
+
+.move-handle {
+  width: 32px; height: 32px; margin: -16px 0 0 -16px;
+  display: grid; place-items: center;
+  background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .45);
+  cursor: move; touch-action: none; user-select: none;
+}
+.move-handle:active { transform: scale(.94); }
+.move-handle svg { width: 20px; height: 20px; pointer-events: none; }
+.leaflet-marker-icon.handle-hidden { display: none; }   /* rectangle too small on screen: corners only */
+
 .corner-handle {
   width: 18px; height: 18px; margin: -9px 0 0 -9px;
   background: #fff; border: 3px solid var(--accent); border-radius: 50%;
