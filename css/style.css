@@ -37,6 +37,12 @@ h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spac
 .lede, .hint { color: var(--muted); margin: 4px 0 8px; }
 progress { width: 100%; margin: 8px 0 0; }
 #preview { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 8px; background: #000; }
+fieldset.field { border: 0; padding: 0; margin: 8px 0; }
+fieldset.field legend { padding: 0; color: var(--fg); }
+label.inline { display: block; margin: 4px 0; }
+input[type="number"] { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; min-height: 40px; width: 100%; margin-top: 4px; }
+.field + .field { margin-top: 8px; }
+.row > .field { flex: 1; margin-top: 0; }
 .advanced { margin-top: 18px; }
 .advanced summary { cursor: pointer; color: var(--muted); }
 
