@@ -104,7 +104,7 @@
   }
 
   /**
-   * Layered-map sheet (laser cutting): one tile per layer, laid out in a grid on a single sheet so every layer can be
+   * Layered-map sheet (for laser cutting or milling): one tile per layer, laid out in a grid on a single sheet so every layer can be
    * cut in one job. `layers` is [{ z, rings }] with rings in heightmap pixels (closed polylines); each layer's rings
    * are its cut lines (outer edge and any holes). Units are millimetres (`opts.mmPerPx` is required). Cut lines are
    * on layer CUT (red); a small label per tile ("1", the layer number) is on layer LABELS (blue), so it can be
@@ -125,7 +125,7 @@
       '<?xml version="1.0" encoding="UTF-8"?>',
       `<svg xmlns="http://www.w3.org/2000/svg" width="${num(L.width)}${unit}" height="${num(L.height)}${unit}" viewBox="0 0 ${num(L.width)} ${num(L.height)}">`,
       `  <title>${esc(o.title || 'MapNC layered map')}</title>`,
-      `  <desc>${layers.length} layers, ${num(L.w)} x ${num(L.h)} mm each${o.thickness ? ', ' + o.thickness + ' mm material' : ''}. Cut lines are red, labels blue. Origin top-left, Y down, units mm.${o.credit ? ' ' + esc(o.credit) : ''}</desc>`,
+      `  <desc>${layers.length} layers, ${num(L.w)} x ${num(L.h)} mm each. Cut lines are red, labels blue. Origin top-left, Y down, units mm.${o.credit ? ' ' + esc(o.credit) : ''}</desc>`,
     ];
     for (const t of L.tiles) {
       const d = t.rings.map((r) => 'M' + r.map((p) => num(t.x + p.x * k) + ' ' + num(t.y + p.y * k)).join(' L') + ' Z').join(' ');

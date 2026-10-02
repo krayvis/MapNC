@@ -46,7 +46,7 @@ check('SVG coordinates are scaled to mm', Math.max(...x) < W * 0.5 + 1e-6 && Mat
   const b = box(lo[2]);
   check('a peak layer is a small closed ring', lo[2].rings.length === 1 && b[0] > 39.9 && b[1] < 60.1 && b[2] > 19.9 && b[3] < 40.1, b.join());
   check('a level above the terrain has no ring', lo[3].rings.length === 0);
-  const vv = V.toLayersSvg(lo.slice(0, 3), w, h, { mmPerPx: 0.5, thickness: 3 }), vd = V.toLayersDxf(lo.slice(0, 3), w, h, { mmPerPx: 0.5 });
+  const vv = V.toLayersSvg(lo.slice(0, 3), w, h, { mmPerPx: 0.5 }), vd = V.toLayersDxf(lo.slice(0, 3), w, h, { mmPerPx: 0.5 });
   check('layers SVG has one numbered group per layer', (vv.match(/<g id="layer-0\d"/g) || []).length === 3 && /class="label"[^>]*>3</.test(vv));
   check('layers DXF has CUT and LABELS layers', /\nCUT\n/.test(vd) && /\nLABELS\n/.test(vd) && (vd.match(/\nTEXT\n/g) || []).length === 3);
   const lay = V.layout(lo.slice(0, 3), w, h, { mmPerPx: 0.5, gap: 5 });

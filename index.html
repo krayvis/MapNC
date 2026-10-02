@@ -211,7 +211,7 @@
       <div class="pane-body">
         <p id="export-empty" class="hint">Export is available once elevation data has loaded.</p>
         <div id="export-section" hidden>
-          <p class="hint">This is the terrain file you carve from. The extras in step 6 are optional.</p>
+          <p class="hint">This is the terrain file you carve from. The toppings in step 6 are optional.</p>
           <label class="field">Bit depth
             <select id="bits-select">
               <option value="16" selected>16-bit greyscale PNG (default)</option>
@@ -227,16 +227,16 @@
     </details>
 
     <details class="pane" id="pane-extras" open>
-      <summary><span class="step">6</span> Optional extras</summary>
+      <summary><span class="step">6</span> Extra toppings</summary>
       <div class="pane-body">
-        <p id="extras-empty" class="hint">Route, contour, map and laser-cut layers appear here once there is a route or elevation data.</p>
+        <p id="extras-empty" class="hint">Route, contour, map and layered-map exports appear here once there is a route or elevation data.</p>
         <div id="route-export" hidden>
           <h3>Layers to go with the heightmap</h3>
-          <p class="hint">Optional. These complement the heightmap and never change it. The route layer needs only the region and the route. Contour lines and laser-cut layers need the elevation data.</p>
+          <p class="hint">Optional. These complement the heightmap and never change it. The route layer needs only the region and the route. Contour lines and the layered map need the elevation data.</p>
           <div class="tabs" role="tablist" aria-label="Route export format">
             <button type="button" role="tab" id="tab-png" aria-controls="tabpanel-png" aria-selected="true">PNG layer</button>
             <button type="button" role="tab" id="tab-vec" aria-controls="tabpanel-vec" aria-selected="false" tabindex="-1">Vector layers (SVG / DXF)</button>
-            <button type="button" role="tab" id="tab-layers" aria-controls="tabpanel-layers" aria-selected="false" tabindex="-1">Laser-cut layers</button>
+            <button type="button" role="tab" id="tab-layers" aria-controls="tabpanel-layers" aria-selected="false" tabindex="-1">Layered map</button>
           </div>
           <div id="tabpanel-png" role="tabpanel" aria-labelledby="tab-png">
           <label class="field">Line width (m on the ground)
@@ -289,14 +289,9 @@
           <div id="tabpanel-layers" role="tabpanel" aria-labelledby="tab-layers" hidden>
             <p class="hint">For a stacked terrain model: one cut outline per layer of plywood or card, each at a constant height, laid out together on one sheet and numbered in stacking order (1 is the bottom). The elevation range comes from the Heightmap step.</p>
             <p id="layers-need" class="hint">Waiting for the elevation data and a carve size under Output size.</p>
-            <div class="row">
-              <label class="field">Material thickness (mm)
-                <input id="layer-mm" type="number" min="0.1" step="any" value="3">
-              </label>
-              <label class="field">Number of layers
-                <input id="layer-count" type="number" min="2" max="100" step="1" value="10">
-              </label>
-            </div>
+            <label class="field">Number of layers
+              <input id="layer-count" type="number" min="2" max="100" step="1" value="10">
+            </label>
             <p id="layers-info" class="hint"></p>
             <div class="row">
               <button id="layers-svg-btn" type="button" disabled>Export SVG</button>
