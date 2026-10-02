@@ -51,8 +51,7 @@
       for (let tx = x0; tx <= x1; tx++) {
         jobs.push(async () => {
           checkAbort(signal);
-          const res = await fetch(TERRARIUM_URL(z, tx, ty), { signal });
-          if (!res.ok) throw new Error('Terrarium tile ' + z + '/' + tx + '/' + ty + ' failed: HTTP ' + res.status);
+          const res = await fetchRetry(TERRARIUM_URL(z, tx, ty), signal, 'Terrarium tile ' + z + '/' + tx + '/' + ty);
           // premultiplyAlpha/colorSpaceConversion off: the RGB channels carry data, not colour.
           const bmp = await createImageBitmap(await res.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
           const c = new OffscreenCanvas(256, 256);
@@ -156,6 +155,51 @@
     return out;
   }
 
+  /** GET with up to two retries on a network error or HTTP 5xx; other statuses fail at once. */
+  async function fetchRetry(url, signal, what) {
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      checkAbort(signal);
+      if (attempt) await new Promise((res) => setTimeout(res, 600 * attempt));
+      try {
+        const res = await fetch(url, { signal });
+        if (res.ok) return res;
+        lastErr = new Error(what + ' failed: HTTP ' + res.status);
+        if (res.status < 500) throw lastErr;
+      } catch (err) {
+        if (err.name === 'AbortError' || err === lastErr && /HTTP [1-4]/.test(err.message)) throw err;
+        lastErr = err;
+      }
+    }
+    throw lastErr;
+  }
+
+  /**
+   * One 3DEP request, retried (twice, with a short pause) on a network error, an HTTP 5xx, or a non-TIFF body: the live
+   * service drops the odd request, and one lost chunk would otherwise fail the whole region. ArcGIS also reports
+   * errors as 200 + JSON/HTML, so the TIFF magic bytes are checked rather than the status code alone.
+   */
+  async function fetchDepTiff(url, signal) {
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      checkAbort(signal);
+      if (attempt) await new Promise((res) => setTimeout(res, 600 * attempt));
+      try {
+        const res = await fetch(url, { signal });
+        if (!res.ok) { lastErr = new Error('3DEP request failed: HTTP ' + res.status); if (res.status < 500) throw lastErr; continue; }
+        const buf = await res.arrayBuffer();
+        const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+        const isTiff = head.length >= 4 && ((head[0] === 0x49 && head[1] === 0x49 && head[2] === 42) || (head[0] === 0x4d && head[1] === 0x4d && head[3] === 42));
+        if (isTiff) return buf;
+        lastErr = new Error('3DEP did not return a TIFF: ' + new TextDecoder().decode(buf.slice(0, 200)));
+      } catch (err) {
+        if (err.name === 'AbortError' || (lastErr && err === lastErr)) throw err;
+        lastErr = err;                                       // network failure: try again
+      }
+    }
+    throw lastErr;
+  }
+
   async function fetch3dep(bounds, plan, opts) {
     const { signal, onProgress } = opts || {};
     const { width: W, height: H } = plan.grid;
@@ -169,15 +213,7 @@
         west: bounds.west + c.x * dLon, east: bounds.west + (c.x + c.w) * dLon,
         north: bounds.north - c.y * dLat, south: bounds.north - (c.y + c.h) * dLat,
       };
-      const res = await fetch(depUrl(bbox, c.w, c.h, plan.interpolation), { signal });
-      if (!res.ok) throw new Error('3DEP request failed: HTTP ' + res.status);
-      const buf = await res.arrayBuffer();
-      const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
-      const isTiff = head.length >= 4 && ((head[0] === 0x49 && head[1] === 0x49 && head[2] === 42) || (head[0] === 0x4d && head[1] === 0x4d && head[3] === 42));
-      if (!isTiff) {
-        // ArcGIS reports errors as 200 + JSON/HTML, so the status code alone isn't enough.
-        throw new Error('3DEP did not return a TIFF: ' + new TextDecoder().decode(buf.slice(0, 200)));
-      }
+      const buf = await fetchDepTiff(depUrl(bbox, c.w, c.h, plan.interpolation), signal);
       const px = await parseDepTiff(buf, c.w, c.h);
       for (let row = 0; row < c.h; row++) out.set(px.subarray(row * c.w, (row + 1) * c.w), (c.y + row) * W + c.x);
     });

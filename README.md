@@ -60,7 +60,7 @@ To run it locally, serve the folder with any static server, for example `python3
 
 - FIT files are not supported; convert to GPX or TCX.
 - Terrarium's pixel size is not the true data resolution; in many places the underlying data is about 30 m.
-- The 3DEP path requests up to 2000 px per call; the service's real limit has not been read at runtime.
+- The 3DEP path requests up to 2000 px per call. The service advertises 8000 px, but larger requests fail in practice, so the smaller size is deliberate.
 - Touch use has not been verified on real devices.
 
 ## Data attribution
