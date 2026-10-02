@@ -42,19 +42,42 @@
       </dl>
     </section>
 
-    <section class="todo">
-      <h2>3. Heightmap</h2>
-      <p class="hint">Fetch, range, exaggeration and PNG export arrive in the next step.</p>
+    <section>
+      <h2>3. Elevation data</h2>
+      <div class="row">
+        <button id="fetch-btn" type="button" disabled>Fetch elevation</button>
+        <button id="cancel-btn" type="button" hidden>Cancel</button>
+      </div>
+      <progress id="progress" max="1" value="0" hidden></progress>
+      <p id="status" class="hint" role="status"></p>
+      <p id="fetch-error" class="warning" hidden></p>
+      <dl id="result-info" class="info" hidden>
+        <dt>Elevation</dt><dd id="res-range">–</dd>
+        <dt>No data</dt><dd id="res-nodata">–</dd>
+      </dl>
+      <canvas id="preview" hidden></canvas>
+      <p id="preview-note" class="hint" hidden>Quick 8-bit preview (auto min/max). Range controls and PNG export come next.</p>
     </section>
 
-    <footer>
-      <p class="hint">Limit: <span id="cap-text"></span>.</p>
-    </footer>
+    <details class="advanced">
+      <summary>Advanced</summary>
+      <label class="field">Max output size
+        <select id="cap-select">
+          <option value="2048">2048 px per side</option>
+          <option value="4096" selected>4096 px per side (default)</option>
+          <option value="8192">8192 px per side</option>
+          <option value="16384">16384 px per side (may crash the tab)</option>
+        </select>
+      </label>
+      <p class="hint" id="cap-text"></p>
+    </details>
   </aside>
   <div id="map" aria-label="Map"></div>
 
   <script src="vendor/leaflet.js"></script>
+  <script src="vendor/geotiff.js"></script>
   <script src="js/geo.js"></script>
+  <script src="js/sources.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

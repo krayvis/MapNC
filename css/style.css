@@ -35,7 +35,10 @@ body {
 h1 { margin: 0 0 4px; font-size: 22px; }
 h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .lede, .hint { color: var(--muted); margin: 4px 0 8px; }
-.todo { opacity: .6; }
+progress { width: 100%; margin: 8px 0 0; }
+#preview { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 8px; background: #000; }
+.advanced { margin-top: 18px; }
+.advanced summary { cursor: pointer; color: var(--muted); }
 
 .row { display: flex; gap: 8px; }
 button, select {

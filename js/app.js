@@ -14,14 +14,23 @@
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
+  window.MapNC = { map, get elevation() { return elevation; } }; // handle for debugging and automated tests
 
   // The selection, always stored as normalized bounds (south/west/north/east).
   let bounds = null;
   let rect = null;
   let handles = [];
 
-  $('cap-text').textContent =
-    Geo.LIMITS.maxSide + ' px per side, ' + (Geo.LIMITS.maxSamples / 1e6).toFixed(1) + ' M samples';
+  function updateCapText() {
+    $('cap-text').textContent = Geo.LIMITS.maxSide + ' px per side, ' + (Geo.LIMITS.maxSamples / 1e6).toFixed(1) +
+      ' M samples. A full-size fetch needs roughly ' + Math.round(Geo.memoryEstimateMB({ width: Geo.LIMITS.maxSide, height: Geo.LIMITS.maxSide })) + ' MB of browser memory.';
+  }
+  updateCapText();
+  $('cap-select').addEventListener('change', () => {
+    Geo.setMaxSide(Number($('cap-select').value));
+    updateCapText();
+    refresh();
+  });
 
   // ---- drawing -----------------------------------------------------------------------------
 
@@ -77,6 +86,8 @@
     $('source-info').hidden = true;
     $('cap-warning').hidden = true;
     $('draw-hint').hidden = false;
+    $('fetch-btn').disabled = true;
+    resetResult();
   }
 
   function setBounds(b) {
@@ -85,6 +96,7 @@
     if (!rect) rect = L.rectangle(ll, { weight: 2, fillOpacity: 0.12, interactive: false }).addTo(map);
     else rect.setBounds(ll);
     syncHandles();
+    resetResult(); // the old result no longer matches the rectangle
     clearBtn.disabled = false;
     $('draw-hint').hidden = true;
     refresh();
@@ -156,7 +168,77 @@
           Geo.LIMITS.maxSide + ' px cap. Draw a smaller rectangle.';
     }
     rect.setStyle({ color: tooBig ? '#d92d20' : '#2563eb' });
+    $('fetch-btn').disabled = tooBig || fetching;
   }
 
-  $('source-select').addEventListener('change', refresh);
+  // ---- fetch + preview ---------------------------------------------------------------------
+
+  let fetching = false;
+  let controller = null;
+  let elevation = null;   // last result from MapNCSources.fetchElevation
+
+  function resetResult() {
+    elevation = null;
+    $('result-info').hidden = true;
+    $('preview').hidden = true;
+    $('preview-note').hidden = true;
+    $('fetch-error').hidden = true;
+    $('status').textContent = '';
+  }
+
+  function drawPreview(e) {
+    const c = $('preview');
+    c.width = e.width; c.height = e.height;
+    const img = new ImageData(e.width, e.height);
+    const span = e.max - e.min || 1;
+    for (let i = 0; i < e.data.length; i++) {
+      const v = e.data[i], o = i * 4;
+      if (v !== v) { img.data[o] = 255; img.data[o + 2] = 255; img.data[o + 3] = 255; continue; } // no data = magenta
+      const g = Math.round(((v - e.min) / span) * 255);
+      img.data[o] = img.data[o + 1] = img.data[o + 2] = g; img.data[o + 3] = 255;
+    }
+    c.getContext('2d').putImageData(img, 0, 0);
+    c.hidden = false;
+    $('preview-note').hidden = false;
+  }
+
+  function setFetching(on) {
+    fetching = on;
+    $('fetch-btn').disabled = on;
+    $('cancel-btn').hidden = !on;
+    $('progress').hidden = !on;
+    drawBtn.disabled = on;
+    $('source-select').disabled = on;
+  }
+
+  $('cancel-btn').addEventListener('click', () => controller && controller.abort());
+
+  $('fetch-btn').addEventListener('click', async () => {
+    if (!bounds || fetching) return;
+    resetResult();
+    setFetching(true);
+    controller = new AbortController();
+    const fetchedBounds = Object.assign({}, bounds);
+    try {
+      const e = await window.MapNCSources.fetchElevation(fetchedBounds, $('source-select').value, {
+        signal: controller.signal,
+        onProgress: (f, msg) => { $('progress').value = f; $('status').textContent = msg; },
+      });
+      elevation = e;
+      $('status').textContent = e.sourceLabel + (e.note ? ' — ' + e.note : '');
+      $('res-range').textContent = e.min.toFixed(1) + ' to ' + e.max.toFixed(1) + ' m (' + (e.max - e.min).toFixed(1) + ' m range)';
+      $('res-nodata').textContent = e.nodata ? (100 * e.nodata / e.data.length).toFixed(1) + '% (magenta in preview)' : 'none';
+      $('result-info').hidden = false;
+      drawPreview(e);
+    } catch (err) {
+      if (err.name === 'AbortError') $('status').textContent = 'Cancelled.';
+      else { $('fetch-error').textContent = err.message; $('fetch-error').hidden = false; $('status').textContent = ''; }
+    } finally {
+      setFetching(false);
+      controller = null;
+      refresh();
+    }
+  });
+
+  $('source-select').addEventListener('change', () => { resetResult(); refresh(); });
 })();

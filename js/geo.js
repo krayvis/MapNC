@@ -13,12 +13,28 @@
   const M_PER_DEG_LON_EQ = 111320;   // metres per degree longitude at the equator
   const EARTH_CIRC = 40075016.686;   // equatorial circumference, metres (Web Mercator)
 
+  const DEFAULT_MAX_SIDE = 4096;
   const LIMITS = {
-    maxSide: 4096,                   // samples per side
-    maxSamples: 4096 * 4096,         // Float32 elevation grid = 64 MB at the cap
-    maxTiles: 144,                   // Terrarium tiles fetched per region
+    maxSide: DEFAULT_MAX_SIDE,       // samples per side
+    maxSamples: DEFAULT_MAX_SIDE * DEFAULT_MAX_SIDE, // Float32 elevation grid = 64 MB at 4096
+    maxTiles: 144,                   // Terrarium tiles fetched per region (scales with the cap)
     maxTerrariumZoom: 15,            // top of the Terrarium pyramid
   };
+
+  /** User-adjustable cap. Tile budget scales with the sample budget so a bigger cap is reachable. */
+  function setMaxSide(n) {
+    LIMITS.maxSide = n;
+    LIMITS.maxSamples = n * n;
+    LIMITS.maxTiles = Math.round(144 * (n / DEFAULT_MAX_SIDE) * (n / DEFAULT_MAX_SIDE));
+  }
+
+  /** Approximate peak memory (MB) for a fetch at this grid: Float32 grid + Terrarium mosaic + 16-bit output. */
+  function memoryEstimateMB(grid, plan) {
+    const samples = grid.width * grid.height;
+    let bytes = samples * 4 + samples * 2;
+    if (plan && plan.id === 'terrarium' && plan.tiles) bytes += plan.tiles.count * 256 * 256 * 4;
+    return bytes / 1048576;
+  }
 
   // Rough 3DEP 1/3 arc-second coverage. Deliberately coarse: the ImageServer returns NoData outside
   // real coverage. Alaska is left out of auto-detect because its coverage is patchy.
@@ -129,7 +145,7 @@
     };
   }
 
-  const api = { LIMITS, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, pickTerrariumZoom, planSource };
+  const api = { LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, pickTerrariumZoom, planSource };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCGeo = api;
 })(typeof self !== 'undefined' ? self : this);
