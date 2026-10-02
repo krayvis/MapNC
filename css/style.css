@@ -1,0 +1,72 @@
+:root {
+  --bg: #f6f7f8;
+  --fg: #1c2024;
+  --muted: #5f6870;
+  --line: #d5d9dd;
+  --accent: #2563eb;
+  --warn: #b42318;
+  --warn-bg: #fef3f2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #171a1d; --fg: #e8eaec; --muted: #9aa3ab; --line: #333a40;
+    --accent: #6ea0ff; --warn: #ff8a80; --warn-bg: #3a1f1d;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+#panel {
+  width: 320px;
+  flex: none;
+  padding: 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+#map { flex: 1; min-width: 0; }
+
+h1 { margin: 0 0 4px; font-size: 22px; }
+h2 { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.lede, .hint { color: var(--muted); margin: 4px 0 8px; }
+.todo { opacity: .6; }
+
+.row { display: flex; gap: 8px; }
+button, select {
+  font: inherit; color: inherit; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px;
+  min-height: 40px;                 /* comfortable touch target */
+}
+button { cursor: pointer; }
+button:active { transform: translateY(1px); }
+button:disabled { opacity: .45; cursor: default; }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.field { display: block; }
+.field select { display: block; width: 100%; margin-top: 4px; }
+
+.info { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0; }
+.info dt { color: var(--muted); }
+.info dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+.warning { color: var(--warn); background: var(--warn-bg); padding: 8px 10px; border-radius: 6px; margin: 8px 0; }
+
+/* Drawing: the map surface must own the drag gesture, or touch would pan/scroll the page instead. */
+#map.drawing { cursor: crosshair; touch-action: none; user-select: none; }
+
+.corner-handle {
+  width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  background: #fff; border: 3px solid var(--accent); border-radius: 50%;
+  touch-action: none;
+}
+
+@media (max-width: 720px) {
+  body { flex-direction: column-reverse; }
+  #panel { width: 100%; max-height: 45vh; border-right: 0; border-top: 1px solid var(--line); }
+  #map { min-height: 55vh; }
+}

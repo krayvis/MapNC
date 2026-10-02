@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MapNC</title>
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <aside id="panel">
+    <h1>MapNC</h1>
+    <p class="lede">Select a region, get a greyscale heightmap. Everything runs in your browser; nothing is uploaded.</p>
+
+    <section>
+      <h2>1. Region</h2>
+      <div class="row">
+        <button id="draw-btn" type="button">Draw rectangle</button>
+        <button id="clear-btn" type="button" disabled>Clear</button>
+      </div>
+      <p id="draw-hint" class="hint">Click <b>Draw rectangle</b>, then drag on the map. Drag a corner to resize.</p>
+      <dl id="region-info" class="info" hidden>
+        <dt>Size</dt><dd id="info-size">–</dd>
+        <dt>Corners</dt><dd id="info-corners">–</dd>
+        <dt>Output grid</dt><dd id="info-grid">–</dd>
+      </dl>
+      <p id="cap-warning" class="warning" hidden></p>
+    </section>
+
+    <section>
+      <h2>2. Elevation source</h2>
+      <label class="field">Source
+        <select id="source-select">
+          <option value="auto" selected>Auto-detect</option>
+          <option value="3dep">USGS 3DEP (US)</option>
+          <option value="terrarium">AWS Terrain Tiles (global)</option>
+        </select>
+      </label>
+      <dl id="source-info" class="info" hidden>
+        <dt>Active</dt><dd id="info-source">–</dd>
+        <dt>Resolution</dt><dd id="info-res">–</dd>
+      </dl>
+    </section>
+
+    <section class="todo">
+      <h2>3. Heightmap</h2>
+      <p class="hint">Fetch, range, exaggeration and PNG export arrive in the next step.</p>
+    </section>
+
+    <footer>
+      <p class="hint">Limit: <span id="cap-text"></span>.</p>
+    </footer>
+  </aside>
+  <div id="map" aria-label="Map"></div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="js/geo.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
