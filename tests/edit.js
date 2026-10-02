@@ -59,11 +59,11 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('one undo step recorded', (await view()).undo === 1);
   await pg.waitForTimeout(500); check('heightmap unaffected by route edits', (await gsum()) === sum0);
   check('no elevation reload from editing', reqs === reqs0, `${reqs - reqs0} requests`);
-  check('clean-up locked, discard offered', await pg.locator('#clean-suggest').isDisabled() && await pg.locator('#edit-discard2').isVisible());
+  check('clean-up locked, discard offered', await pg.locator('#clean-reset').isDisabled() && await pg.locator('#edit-discard2').isVisible());
 
   // D. undo / redo (buttons and keys)
   await pg.click('#edit-undo'); let p1 = await pt(V.seg, V.idx); check('Undo restores the exact point', p1.lat === before.lat && p1.lon === before.lon);
-  check('Undo releases the lock when nothing is left', !(await pg.locator('#clean-suggest').isDisabled()) && !(await pg.locator('#edit-discard2').isVisible()));
+  check('Undo releases the lock when nothing is left', !(await pg.locator('#clean-reset').isDisabled()) && !(await pg.locator('#edit-discard2').isVisible()));
   await pg.keyboard.press('Control+Shift+Z'); p1 = await pt(V.seg, V.idx); check('Ctrl+Shift+Z redoes', Math.abs(p1.lat - after.lat) < 1e-12);
   await pg.keyboard.press('Control+Z'); p1 = await pt(V.seg, V.idx); check('Ctrl+Z undoes', p1.lat === before.lat);
   await pg.keyboard.press('Control+Y'); p1 = await pt(V.seg, V.idx); check('Ctrl+Y redoes', Math.abs(p1.lat - after.lat) < 1e-12);
@@ -96,7 +96,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   // G. discard
   v = (await view()).list; const w = v.find(p => p.x > 300 && p.x < 800 && p.y > 300 && p.y < 800); const [wx, wy] = await abs(w); await drag(wx, wy, wx + 30, wy + 30);
   check('edited again', (await view()).undo === 1);
-  await pg.click('#edit-discard2'); check('Discard returns to the clean-up result and unlocks', (await pts()) === n0 && !(await pg.locator('#clean-suggest').isDisabled()) && (await view()).undo === 0);
+  await pg.click('#edit-discard2'); check('Discard returns to the clean-up result and unlocks', (await pts()) === n0 && !(await pg.locator('#clean-reset').isDisabled()) && (await view()).undo === 0);
 
   // H. exports follow the edits
   v = (await view()).list; const x2 = v.find(p => p.x > 300 && p.x < 800 && p.y > 300 && p.y < 800); const [x2x, x2y] = await abs(x2); await click(x2x, x2y); await pg.keyboard.press('Delete');

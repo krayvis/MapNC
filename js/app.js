@@ -485,7 +485,7 @@
     $('clean-spikes').checked = spikes > 0;
     $('clean-spike-m').value = spikes > 0 ? spikes : 20;
     $('clean-spacing').value = spacing;
-    $('clean-merge').checked = false; $('clean-merge-m').value = 3;
+    $('clean-merge').checked = false; $('clean-merge-m').value = 5;
     syncDependents();
   }
 
@@ -503,7 +503,6 @@
     updateRouteExportInfo();
   }
   $('spline-on').addEventListener('change', splineChanged);
-  $('clean-suggest').addEventListener('click', () => { setCleanInputs(20, 3); applyClean(); });
   $('clean-reset').addEventListener('click', () => { setCleanInputs(0, 0); applyClean(); });
 
   function fitToTrack() {
@@ -1050,7 +1049,7 @@
   /** Keep every control that depends on the editing state in step with it. */
   function refreshEditUi() {
     const locked = !!editTrack, n = edit.undo.length;
-    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-merge', 'clean-merge-m', 'clean-suggest', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
+    ['clean-spikes', 'clean-spike-m', 'clean-spacing', 'clean-merge', 'clean-merge-m', 'clean-reset'].forEach((id) => { $(id).disabled = locked; });
     // main sidebar: a short summary and the way to unlock
     $('edit-summary').hidden = !locked;
     $('edit-summary').textContent = locked ? 'Manual edits: ' + n + ' change' + (n === 1 ? '' : 's') + '. The settings above are locked until you discard them.' : '';

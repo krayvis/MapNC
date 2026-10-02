@@ -31,7 +31,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('vector hint switches to millimetres', /millimetres/.test(await txt('vec-hint')));
   files.svg = await dl('#export-svg-btn', 'raw.svg'); files.dxf = await dl('#export-dxf-btn', 'mm.dxf');
   await pg.uncheck('#vec-border'); files.dxfNoBorder = await dl('#export-dxf-btn', 'noborder.dxf'); await pg.check('#vec-border');
-  await pg.click('summary:has-text("Clean up")'); await pg.click('#clean-suggest'); await pg.waitForTimeout(400);
+  await pg.click('summary:has-text("Clean up")'); await pg.check('#clean-spikes'); await pg.fill('#clean-spacing', '3'); await pg.waitForTimeout(400);
   files.dxfClean = await dl('#export-dxf-btn', 'clean.dxf');
   await pg.click('#clean-reset'); await pg.waitForTimeout(300);
   await pg.check('#spline-on'); files.svgSpline = await dl('#export-svg-btn', 'spline.svg'); await pg.uncheck('#spline-on');

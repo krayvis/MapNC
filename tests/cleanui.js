@@ -26,7 +26,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('initially unchanged', /unchanged/.test(await txt('clean-points')), await txt('clean-points'));
   const base = await sum(), reqs0 = reqs, p0 = await paths();
 
-  await pg.click('#clean-suggest'); await pg.waitForTimeout(500);
+  await pg.check('#clean-spikes'); await pg.fill('#clean-spacing', '3'); await pg.waitForTimeout(500);
   const pts = await txt('clean-points'); const [a, c] = pts.split('→').map(s => parseInt(s));
   check('suggested settings cut the point count', c < a * 0.7, pts);
   check('length + shift reported', /→/.test(await txt('clean-length')) && /m from the original/.test(await txt('clean-shift')), `${await txt('clean-length')} | ${await txt('clean-shift')}`);
@@ -72,7 +72,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.check('#clean-spikes'); await pg.fill('#clean-spike-m', '25'); await pg.waitForTimeout(500);
   const sp = parseInt(await txt('clean-spikes-n')); check('spike removal reports the injected spikes (46 injected)', sp >= 40 && sp <= 60, 'removed ' + sp);
   console.log('   ', await txt('clean-points'), '|', await txt('clean-shift'));
-  await pg.click('#clean-suggest'); await pg.waitForTimeout(500);
+  await pg.check('#clean-spikes'); await pg.fill('#clean-spacing', '3'); await pg.waitForTimeout(500);
   await pg.screenshot({ path: S + '/cleanui.png' });
 
   // clearing the route hides the pane
