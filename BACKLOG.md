@@ -26,3 +26,4 @@ Unsorted, unevaluated.
 - Cross-section / profile view along the route.
 - Sea-level clamp (flatten below 0 m so water is a flat pool).
 - Read the heightmapper and unrealheightmap projects for ideas and pitfalls.
+- **Spline view of the GPX route.** A button to show the route as a smooth spline (e.g. Catmull-Rom through the points) instead of straight segments. Open question: map-only display, or also what gets burned into the route PNG and exported to SVG/DXF? Needs the user's intent pinned down.
