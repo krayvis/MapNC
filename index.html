@@ -350,9 +350,20 @@
       <canvas id="hm-canvas" aria-label="Heightmap"></canvas>
       <div id="hm-readout" hidden role="status"></div>
     </div>
+    <div id="t3-view" hidden>
+      <canvas id="t3-canvas" aria-label="3D terrain"></canvas>
+      <div id="t3-ctl">
+        <label>Vertical exaggeration <input type="range" id="t3-exag" min="1" max="10" step="0.5" value="2"> <output id="t3-exag-out">2×</output></label>
+        <label id="t3-route-label"><input type="checkbox" id="t3-route" checked> Route</label>
+        <button type="button" id="t3-reset">Reset view</button>
+      </div>
+      <div id="t3-hint">Drag to rotate · right-drag or two fingers to pan · wheel or pinch to zoom</div>
+      <div id="t3-msg" hidden role="status"></div>
+    </div>
     <div id="view-switch" role="group" aria-label="Main view">
       <button type="button" id="view-map" aria-pressed="true">Map</button>
       <button type="button" id="view-hm" aria-pressed="false" disabled>Heightmap</button>
+      <button type="button" id="view-3d" aria-pressed="false" disabled>3D</button>
     </div>
   </div>
 
@@ -363,6 +374,7 @@
   <script src="js/heightmap.js"></script>
   <script src="js/track.js"></script>
   <script src="js/contours.js"></script>
+  <script src="js/terrain3d.js"></script>
   <script src="js/vector.js"></script>
   <script src="js/app.js"></script>
 </body>

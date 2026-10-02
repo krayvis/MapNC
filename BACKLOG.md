@@ -6,7 +6,6 @@ Things we may do, not things we are doing. Move an item to **Next** when it is a
 
 Soon, in rough priority order.
 
-- **3D terrain view.** A third option in the Map / Heightmap switch: a WebGL terrain mesh from the elevation grid with the route draped on it, to check a trail against a switchback or ridge before carving. Needs a vendored 3D library (or a small raw-WebGL renderer), vertical exaggeration, and orbit/zoom, including touch.
 - **Vector layers: water and roads (and lakes).** Rivers, lakes and roads as polylines/polygons in the same frame as the route, from OpenStreetMap through the Overpass API (works from a browser; needs ODbL attribution, a size limit on the query area, and a polite request rate). Lakes also have a use in the heightmap itself (flatten to a pool). Open question: Overpass availability, and how heavy a dense road network gets, so it needs simplification and a feature filter (main roads only, say).
 
 **Where these go (decided; contours are built, water and roads are not):** contours, water and roads are export-only and do not change the heightmap, so they belong in step 5 (Export) as one "Vector layers" group, not a new step 6. Route, contours, water and roads each get a checkbox and share the SVG/DXF buttons and the corner marks, so one file carries everything on separate layers, all in the heightmap's frame. Contour interval and the road/water filters sit under their checkboxes. The vector tab of the route export (PNG / Vector tabs) is the natural home; it would be renamed "Vector layers" when the first of these lands.

@@ -46,7 +46,7 @@
   L.control.layers(baseLayers, null, { collapsed: true, position: 'topright' }).addTo(map);
   map.on('baselayerchange', (e) => { baseName = e.name; try { localStorage.setItem('mapnc-basemap', e.name); } catch (err) { /* ignore */ } });
   L.control.scale({ imperial: false }).addTo(map);
-  window.MapNC = { map, get elevation() { return elevation; }, get grey() { return grey; }, region: () => bounds }; // handle for debugging and automated tests
+  window.MapNC = { map, get elevation() { return elevation; }, get grey() { return grey; }, region: () => bounds, get t3() { return t3; } }; // handle for debugging and automated tests
 
   // The selection, always stored as normalized bounds (south/west/north/east).
   let bounds = null;
@@ -498,7 +498,7 @@
     if (!track) return;
     trackLayer.setLatLngs(ll(shown()));
     syncRawLayer();
-    if (elevation && grey) drawPreview();
+    if (elevation && grey) { drawPreview(); if (view === '3d') sync3d(); }
     updateRouteExportInfo();
   }
   $('spline-on').addEventListener('change', splineChanged);
@@ -594,17 +594,38 @@
   let view = 'map';
   function updateViewSwitch() {
     $('view-hm').disabled = !elevation || !!edit.on;
+    $('view-3d').disabled = $('view-hm').disabled;
     $('show-hm').disabled = $('view-hm').disabled;
   }
+  // ---- 3D terrain ----
+  let t3 = null, t3Elev = null;
+  function sync3d() {
+    const T = window.MapNCTerrain3D;
+    if (!t3 && T) t3 = T.create($('t3-canvas'));
+    $('t3-msg').hidden = !!t3;
+    if (!t3) { $('t3-msg').textContent = 'The 3D view needs WebGL, which this browser does not provide.'; return; }
+    if (t3Elev !== elevation) { t3.setElevation(elevation); t3Elev = elevation; }
+    $('t3-route').disabled = !track;
+    $('t3-route-label').hidden = !track;
+    t3.setRoute(track ? Track.toPixels(shown(), elevation.bounds, elevation.width, elevation.height) : null);
+    t3.setRouteVisible($('t3-route').checked);
+    t3.setExaggeration(parseFloat($('t3-exag').value));
+  }
+  $('t3-exag').addEventListener('input', () => { $('t3-exag-out').textContent = $('t3-exag').value + '\u00d7'; if (t3) t3.setExaggeration(parseFloat($('t3-exag').value)); });
+  $('t3-route').addEventListener('change', () => { if (t3) t3.setRouteVisible($('t3-route').checked); });
+  $('t3-reset').addEventListener('click', () => { if (t3) t3.resetView(); });
   function setView(v) {
-    if (v === 'hm' && (!elevation || !grey || edit.on)) v = 'map';
+    if ((v === 'hm' && (!elevation || !grey || edit.on)) || (v === '3d' && (!elevation || edit.on))) v = 'map';
     view = v;
-    $('map').hidden = v === 'hm';
+    $('map').hidden = v !== 'map';
     $('hm-view').hidden = v !== 'hm';
+    $('t3-view').hidden = v !== '3d';
     $('view-map').setAttribute('aria-pressed', String(v === 'map'));
     $('view-hm').setAttribute('aria-pressed', String(v === 'hm'));
-    if (v === 'hm') drawPreview(); else map.invalidateSize();
+    $('view-3d').setAttribute('aria-pressed', String(v === '3d'));
+    if (v === 'hm') drawPreview(); else if (v === '3d') sync3d(); else map.invalidateSize();
   }
+  $('view-3d').addEventListener('click', () => setView('3d'));
   $('view-map').addEventListener('click', () => setView('map'));
   $('view-hm').addEventListener('click', () => setView('hm'));
   $('show-hm').addEventListener('click', () => setView('hm'));
@@ -763,6 +784,7 @@
       (grey.clippedHigh ? 'above window' : '') + (grey.clippedHigh && grey.clippedLow ? ', ' : '') + (grey.clippedLow ? 'below window' : '') + ')' : 'none';
     $('export-status').textContent = '';
     drawPreview();
+    if (view === '3d') sync3d();
   }
 
   function scheduleRecompute() { clearTimeout(recomputeTimer); recomputeTimer = setTimeout(recompute, 120); }
