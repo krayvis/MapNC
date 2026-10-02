@@ -48,6 +48,13 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   const plain = await dl('#export-svg-btn', 'p.svg');
   check('contours off: only the route', !/id="contours/.test(plain.text) && /<g id="route"/.test(plain.text));
 
+  await pg.click('#tab-png');
+  await pg.click('#view-hm'); await pg.waitForTimeout(300);
+  const red = () => pg.evaluate(() => { const c = document.getElementById('hm-canvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 80 && d[i + 2] < 120) n++; return n; });
+  await pg.fill('#route-width', '5'); await pg.waitForTimeout(300); const thin = await red();
+  await pg.fill('#route-width', '200'); await pg.waitForTimeout(300); const thick = await red();
+  check('heightmap guide line follows the line width', thick > thin * 2, thin + ' -> ' + thick);
+  await pg.click('#view-map'); await pg.click('#tab-vec');
   await pg.click('#track-clear');
   check('layer export stays for contours with no route', await pg.locator('#route-export').isVisible());
   check('route layer button disabled without a route', await pg.locator('#export-route-btn').isDisabled());

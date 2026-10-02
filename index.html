@@ -136,41 +136,8 @@
       </div>
     </details>
 
-    <details class="pane" id="pane-output">
-      <summary><span class="step">3</span> Output size</summary>
-      <div class="pane-body">
-        <label class="field">Pixel size
-          <select id="res-mode">
-            <option value="auto" selected>Auto (at least 2048 px long side, never below source)</option>
-            <option value="scale">Scale × source resolution</option>
-            <option value="pixels">Long side in pixels</option>
-            <option value="mpp">Metres per pixel</option>
-          </select>
-        </label>
-        <label class="field" id="res-value-wrap" hidden><span id="res-value-label">Scale (×)</span>
-          <input id="res-value" type="number" min="0.01" step="any" value="4">
-        </label>
-        <div class="field">
-          <label for="carve-size">Carve size, long side (optional)</label>
-          <div class="row">
-            <input id="carve-size" type="number" min="0" step="any" placeholder="e.g. 12">
-            <select id="carve-unit" aria-label="Carve size unit"><option value="in" selected>in</option><option value="mm">mm</option></select>
-          </div>
-        </div>
-        <label class="field">Finishing stepover (mm, optional)
-          <input id="stepover" type="number" min="0.01" step="any" placeholder="e.g. 0.25">
-        </label>
-        <dl id="out-info" class="info" hidden>
-          <dt>Pixel size</dt><dd id="out-px">–</dd>
-          <dt>On the carve</dt><dd id="out-carve">–</dd>
-        </dl>
-        <p id="out-advice" class="hint" hidden></p>
-        <p class="hint">More pixels than the source has adds no real terrain detail, but gives CAD/CAM software a smooth surface and a smooth route line instead of visible steps. Entering the carve size also stores the real-world size in the PNG.</p>
-      </div>
-    </details>
-
     <details class="pane" id="pane-heightmap" open>
-      <summary><span class="step">4</span> Heightmap</summary>
+      <summary><span class="step">3</span> Heightmap</summary>
       <div class="pane-body">
         <p id="hm-empty" class="hint">The heightmap appears here once elevation data has loaded.</p>
         <div id="hm-section" hidden>
@@ -199,10 +166,43 @@
             <dt>Per grey level</dt><dd id="hm-level">–</dd>
             <dt>Clipped</dt><dd id="hm-clip">–</dd>
           </dl>
-          <label class="inline" id="route-guide-wrap" hidden><input type="checkbox" id="route-guide" checked> Show route on the heightmap view</label>
+          <label class="inline" id="route-guide-wrap" hidden><input type="checkbox" id="route-guide" checked> Show route on the heightmap view (drawn at the step 6 line width)</label>
           <div class="row"><button id="show-hm" type="button">View heightmap</button></div>
           <p class="hint">The view is 8-bit for display only. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
         </div>
+      </div>
+    </details>
+
+    <details class="pane" id="pane-output">
+      <summary><span class="step">4</span> Output size</summary>
+      <div class="pane-body">
+        <label class="field">Pixel size
+          <select id="res-mode">
+            <option value="auto" selected>Auto (at least 2048 px long side, never below source)</option>
+            <option value="scale">Scale × source resolution</option>
+            <option value="pixels">Long side in pixels</option>
+            <option value="mpp">Metres per pixel</option>
+          </select>
+        </label>
+        <label class="field" id="res-value-wrap" hidden><span id="res-value-label">Scale (×)</span>
+          <input id="res-value" type="number" min="0.01" step="any" value="4">
+        </label>
+        <div class="field">
+          <label for="carve-size">Carve size, long side (optional)</label>
+          <div class="row">
+            <input id="carve-size" type="number" min="0" step="any" placeholder="e.g. 12">
+            <select id="carve-unit" aria-label="Carve size unit"><option value="in" selected>in</option><option value="mm">mm</option></select>
+          </div>
+        </div>
+        <label class="field">Finishing stepover (mm, optional)
+          <input id="stepover" type="number" min="0.01" step="any" placeholder="e.g. 0.25">
+        </label>
+        <dl id="out-info" class="info" hidden>
+          <dt>Pixel size</dt><dd id="out-px">–</dd>
+          <dt>On the carve</dt><dd id="out-carve">–</dd>
+        </dl>
+        <p id="out-advice" class="hint" hidden></p>
+        <p class="hint">More pixels than the source has adds no real terrain detail, but gives CAD/CAM software a smooth surface and a smooth route line instead of visible steps. Entering the carve size also stores the real-world size in the PNG.</p>
       </div>
     </details>
 

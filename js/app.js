@@ -805,10 +805,12 @@
     const ctx = c.getContext('2d');
     ctx.putImageData(img, 0, 0);
     if (track && $('route-guide').checked) {
-      // Guide line: about 2 screen pixels wide however large the grid is. Not part of any export.
+      // Guide line at the route layer's real width (the Line width field, metres on the ground), so it shows how wide
+      // the exported line will be against the whole map; never thinner than 1.5 screen pixels so it stays visible. Not part of any export.
       ctx.strokeStyle = '#e11d48';
       const st = $('stage'), shownW = Math.max(100, Math.min(st.clientWidth - 32, (st.clientHeight - 72) * e.width / e.height));
-      ctx.lineWidth = 2 * e.width / shownW;
+      const gs = Geo.groundSize(e.bounds), pxPerM = Math.max(e.width, e.height) / Math.max(gs.widthM, gs.heightM);
+      ctx.lineWidth = Math.max(lineWidthM() * pxPerM, 1.5 * e.width / shownW);
       ctx.lineJoin = ctx.lineCap = 'round';
       for (const seg of Track.toPixels(shown(), e.bounds, e.width, e.height)) {
         ctx.beginPath();
@@ -827,7 +829,7 @@
   ['range-lo', 'range-hi', 'curve-strength'].forEach((id) => $(id).addEventListener('input', scheduleRecompute));
   $('curve-kind').addEventListener('change', () => { $('curve-strength-wrap').hidden = $('curve-kind').value === 'linear'; recompute(); });
   ['bits-select', 'invert', 'route-guide'].forEach((id) => $(id).addEventListener('change', recompute));
-  $('route-width').addEventListener('input', () => { widthTouched = true; });
+  $('route-width').addEventListener('input', () => { widthTouched = true; if (view === 'hm' && elevation && grey) drawPreview(); });
 
   function saveBlob(blob, name) {
     const a = document.createElement('a');
