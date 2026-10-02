@@ -158,7 +158,7 @@
     return { levels };
   }
 
-  const api = { contourLines, niceInterval };
+  const api = { contourLines, niceInterval, thin };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCContours = api;
 })(typeof self !== 'undefined' ? self : this);

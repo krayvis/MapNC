@@ -1163,7 +1163,7 @@
 
   const LAYER_MIN_PX = 64, LAYER_MAX_PX = 16384;
   const ROUTE_RGB = [225, 29, 72];
-  const Vec = window.MapNCVector, Contours = window.MapNCContours;
+  const Vec = window.MapNCVector, Contours = window.MapNCContours, OSM = window.MapNCOsm;
 
   /** The heightmap's grid: from the loaded data when there is some, otherwise from the plan. null if unknown. */
   function exportGrid() {
@@ -1250,6 +1250,7 @@
     $('contour-need').hidden = !!elevation;
     $('export-route-btn').disabled = !track;
     updateContourInfo();
+    updateOsmInfo();
     updateRouteExportInfo();
   }
   ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
@@ -1315,12 +1316,69 @@
     }
   });
 
-  function vectorExport(kind) {
+
+  // ---- OpenStreetMap layers (roads, water, lakes) ----
+  const OSM_LAYERS = [
+    { id: 'vec-osm-roads', kind: 'roads', name: 'roads', color: '#6b7280', aci: 8, width: 0.8, label: 'main roads' },
+    { id: 'vec-osm-minor', kind: 'roads_minor', name: 'roads_minor', color: '#9ca3af', aci: 9, width: 0.4, label: 'minor roads' },
+    { id: 'vec-osm-water', kind: 'water', name: 'water', color: '#2b7bba', aci: 4, width: 0.6, label: 'waterways' },
+    { id: 'vec-osm-lakes', kind: 'lakes', name: 'lakes', color: '#1d4ed8', aci: 150, width: 0.6, label: 'lakes' },
+  ];
+  const osmKinds = () => OSM_LAYERS.filter((l) => $(l.id).checked).map((l) => l.kind);
+  let osmToken = 0;
+
+  /** Fetches (cached) and projects the ticked OSM layers into the export grid. Returns { layers, counts } or { error }. */
+  async function osmLayers(grid) {
+    const kinds = osmKinds();
+    if (!kinds.length) return { layers: [], counts: {} };
+    const gs = Geo.groundSize(grid.bounds), problem = OSM.areaProblem(Math.max(gs.widthM, gs.heightM), kinds);
+    if (problem) return { error: problem };
+    try {
+      const feats = await OSM.fetchFeatures(grid.bounds, kinds);
+      const px = OSM.toLayers(feats, grid.bounds, grid.W, grid.H);
+      const layers = [], counts = {};
+      for (const l of OSM_LAYERS) {
+        if (!kinds.includes(l.kind)) continue;
+        counts[l.kind] = px[l.kind].length;
+        if (px[l.kind].length) layers.push({ name: l.name, color: l.color, aci: l.aci, width: l.width, lines: px[l.kind] });
+      }
+      return { layers, counts };
+    } catch (err) {
+      return { error: err.message };
+    }
+  }
+  function osmSummary(r) {
+    if (r.error) return r.error;
+    return OSM_LAYERS.filter((l) => l.kind in r.counts).map((l) => r.counts[l.kind] + ' ' + l.label).join(', ') + '.';
+  }
+  /** Shows the credit and, after a short pause, fetches what is ticked so the counts (or the problem) appear right away. */
+  let osmTimer = null;
+  function updateOsmInfo() {
+    clearTimeout(osmTimer);
+    const kinds = osmKinds(), info = $('osm-info');
+    $('osm-credit').hidden = !kinds.length;
+    info.hidden = !kinds.length;
+    if (!kinds.length) return;
+    const grid = exportGrid();
+    if (!grid) { info.textContent = 'Select a region first.'; return; }
+    info.textContent = 'Fetching from OpenStreetMap…';
+    const token = ++osmToken;
+    osmTimer = setTimeout(async () => {
+      const r = await osmLayers(grid);
+      if (token === osmToken) info.textContent = osmSummary(r);
+    }, 400);
+  }
+  OSM_LAYERS.forEach((l) => $(l.id).addEventListener('change', updateOsmInfo));
+
+  let vectorBusy = false;
+  async function vectorExport(kind) {
+    if (vectorBusy) return;
     const grid = exportGrid();
     if (!grid) return;
     const wantContours = $('vec-contours').checked && !$('vec-contours').disabled;
-    if (!track && !wantContours) { routeStatus('Nothing to export: load a route or turn on contour lines.'); return; }
-    const layers = [];
+    const wantOsm = osmKinds().length > 0;
+    if (!track && !wantContours && !wantOsm) { routeStatus('Nothing to export: load a route or turn on contour lines or a map layer.'); return; }
+    const layers = [], parts = [];
     if (wantContours) {
       const r = contourResult();
       if (r.error) { routeStatus('Contours: ' + r.error); return; }
@@ -1329,16 +1387,29 @@
       if (minor.length) layers.push({ name: 'contours', color: '#9a6b3c', aci: 30, width: 0.4, lines: minor });
       if (major.length) layers.push({ name: 'contours_index', color: '#5b3a17', aci: 32, width: 0.9, lines: major });
     }
+    let osmNote = '';
+    if (wantOsm) {
+      vectorBusy = true; routeStatus('Fetching OpenStreetMap data…');
+      const r = await osmLayers(grid);
+      vectorBusy = false;
+      if (r.error) { routeStatus('OpenStreetMap: ' + r.error); return; }
+      layers.push(...r.layers);
+      osmNote = ' ' + osmSummary(r);
+      for (const l of OSM_LAYERS) if (r.layers.some((x) => x.name === l.name)) parts.push(l.kind === 'water' || l.kind === 'lakes' ? 'water' : 'roads');
+      if (!r.layers.length && !track && !wantContours) { routeStatus('OpenStreetMap has nothing of that kind in this region.'); return; }
+    }
     const mm = carveLongMm(), gs = Geo.groundSize(grid.bounds), longM = Math.max(gs.widthM, gs.heightM);
     const o = {
       mmPerPx: mm ? mm / Math.max(grid.W, grid.H) : 0,
       lineWidth: mm ? lineWidthM() * (mm / longM) : 0,     // only how thick the SVG line looks; CAM uses the centre line
       border: $('vec-border').checked, marks: $('vec-marks').checked, title: (track && track.name) || 'MapNC', layers,
+      credit: wantOsm ? OSM.CREDIT : '',
     };
     const text = kind === 'svg' ? Vec.toSvg(shown(), grid.bounds, grid.W, grid.H, o) : Vec.toDxf(shown(), grid.bounds, grid.W, grid.H, o);
     const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });
-    const what = [track ? 'route' : '', layers.length ? 'contours' : ''].filter(Boolean).join('-') || 'frame';
-    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_' + what + '.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').');
+    const what = [track ? 'route' : '', wantContours && layers.some((l) => /^contours/.test(l.name)) ? 'contours' : '']
+      .concat(parts.filter((v, i) => parts.indexOf(v) === i)).filter(Boolean).join('-') || 'frame';
+    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_' + what + '.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').' + osmNote);
   }
   $('export-svg-btn').addEventListener('click', () => vectorExport('svg'));
   $('export-dxf-btn').addEventListener('click', () => vectorExport('dxf'));

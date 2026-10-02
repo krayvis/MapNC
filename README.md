@@ -19,6 +19,7 @@ The sidebar is a set of collapsible panes (opening one closes the others, and wh
    - **Route layer (PNG):** the line alone, at the **line width** you set (metres on the ground), on a transparent RGBA canvas, framed exactly like the heightmap. Choose the same size, 2×, 4×, 8×, or a long side up to 16384 px. It is drawn and compressed a strip at a time, so even a very large layer uses little memory and is a small file (an 11281 × 16384 layer was about 1 MB), though the program you open it in must hold the whole bitmap. Cancel any time.
    - **SVG and DXF:** the route as vector polylines, in millimetres of the finished carve once you enter a carve size (otherwise heightmap pixels), in the same frame as the heightmap. SVG has its origin top-left; DXF (AutoCAD R12) bottom-left, Y up. An optional job-border rectangle and four corner marks (L brackets, on their own layer) span exactly the heightmap's extent: select them with the route, scale the group to the heightmap size with the aspect ratio locked, then delete them. DXF is usually the safer choice for Vectric or Carbide Create; check the size on import. These use the cleaned route, so cleaning first gives a much lighter file.
    - **Contour lines (SVG and DXF):** tick **Contour lines** on the vector tab (needs the elevation data). Lines sit at whole multiples of the interval you set (a round default is suggested from the elevation range), in the same frame and units as the route, so they overlay the heightmap exactly. Every 5th line goes on its own layer (`CONTOURS_INDEX`, the rest on `CONTOURS`). Lines are lightly smoothed and thinned, tiny noise loops are dropped, and they stop at no-data holes. They never change the heightmap. A route is optional: contours alone export fine.
+   - **OpenStreetMap layers (SVG and DXF):** on the same tab, tick main roads, minor roads and tracks, rivers and streams, and/or lake outlines. They are fetched from OpenStreetMap when you tick them (limited to modest regions; see Data attribution), clipped to the heightmap's extent, thinned, and exported on their own layers (`ROADS`, `ROADS_MINOR`, `WATER`, `LAKES`) in the same frame as the route. They never change the heightmap.
 
 **Advanced** (collapsed): the elevation source (Auto picks USGS 3DEP inside the US, AWS Terrain Tiles elsewhere), the max output size, and a reload button.
 
@@ -63,6 +64,7 @@ No build step: edit the files and reload. Serve the folder (`python3 -m http.ser
 | `js/vector.js` | SVG and DXF export of the route and extra line layers |
 | `js/terrain3d.js` | 3D terrain view: raw-WebGL mesh, draped route, orbit/pan/zoom (no library) |
 | `js/contours.js` | Contour lines from the elevation grid (marching squares) |
+| `js/osm.js` | OpenStreetMap roads, rivers and lakes through Overpass: query, cache, clip, thin |
 | `js/app.js` | Map, UI wiring |
 | `js/theme.js` | Light / dark / auto theme (loaded in `<head>` to avoid a flash) |
 | `samples/` | Sample GPX route |
@@ -90,6 +92,10 @@ This covers MapNC's own code. The libraries in `vendor/` keep their own licences
 
 - **USGS 3D Elevation Program (3DEP)**, via The National Map ImageServer (`elevation.nationalmap.gov`). Courtesy of the U.S. Geological Survey. U.S. Government work, public domain; please credit USGS.
 - **AWS Terrain Tiles** (Terrarium format), from the Registry of Open Data on AWS (`elevation-tiles-prod`). The tiles combine several public datasets, including SRTM, USGS NED/3DEP, GMTED2010, ETOPO1, ArcticDEM, NRCan CDEM, EU-DEM and GEBCO bathymetry, among others. The full, authoritative list and licence terms are in the Tilezen attribution notes: <https://github.com/tilezen/joerd/blob/master/docs/attribution.md>. Please check it before redistributing derived data.
+- **OpenStreetMap vector layers** (optional roads, rivers and lake outlines in the SVG/DXF export), fetched from the [Overpass API](https://wiki.openstreetmap.org/wiki/Overpass_API). Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), licensed under the [ODbL](https://opendatacommons.org/licenses/odbl/). What that means in practice (not legal advice):
+  - The exported SVG/DXF carries the credit inside the file. A part you carve from it is a "Produced Work": credit OpenStreetMap wherever it is shown or sold (a line on the back, the packaging, the listing or a product card), for example "Contains data © OpenStreetMap contributors".
+  - If you publish the extracted SVG/DXF files themselves, that is sharing a derivative database, so they must stay under the ODbL with the same credit. Private use has no such duty.
+  - Overpass is a free shared service, so MapNC asks for small areas only (main roads, rivers and lakes up to 50 km on the long side, minor roads up to 8 km), one request at a time, and caches the answer.
 - **Map tiles** (display only; none of this is used for the heightmap):
   - Street: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL). The OSM tile server is meant for light use; see its [tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
   - Topographic: [OpenTopoMap](https://opentopomap.org) (CC-BY-SA), map data © OpenStreetMap contributors, SRTM. Also a community service for light use.

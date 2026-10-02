@@ -211,3 +211,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .tabs [role="tab"] { flex: 1; border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0; background: transparent; padding: 6px 8px; cursor: pointer; font: inherit; color: inherit; opacity: .7; }
 .tabs [role="tab"][aria-selected="true"] { opacity: 1; font-weight: 600; border-color: var(--border, #d0d7de); background: var(--panel, transparent); box-shadow: inset 0 -2px 0 var(--accent, #2563eb); }
 .tabs [role="tab"]:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: -2px; }
+
+.osm-group { border: 1px solid var(--line); border-radius: 6px; margin: 8px 0; padding: 4px 10px 6px; }
+.osm-group legend { padding: 0 4px; font-size: 0.9em; color: var(--muted); }
+#credits { font-size: 0.8em; margin: 16px 0 4px; padding-top: 8px; border-top: 1px solid var(--line); line-height: 1.4; }

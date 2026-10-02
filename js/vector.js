@@ -8,7 +8,7 @@
  * `lineWidth` is in the output units and only affects how the SVG strokes look: CAM software takes the centre line.
  * `track` may be null. opts.layers adds more line layers: [{ name, color, aci, width, lines }], where `lines` are polylines
  * in heightmap pixels (scaled here like the route), `name` becomes the SVG group id and the DXF layer (upper-cased),
- * `aci` is the DXF colour number and `width` multiplies the SVG stroke.
+ * `aci` is the DXF colour number and `width` multiplies the SVG stroke. opts.credit is a data credit line, written into the SVG <desc> and as a DXF comment.
  */
 (function (root) {
   'use strict';
@@ -47,7 +47,7 @@
       '<?xml version="1.0" encoding="UTF-8"?>',
       `<svg xmlns="http://www.w3.org/2000/svg" width="${num(w)}${unit}" height="${num(h)}${unit}" viewBox="0 0 ${num(w)} ${num(h)}">`,
       `  <title>${esc(o.title || 'MapNC route')}</title>`,
-      `  <desc>Origin top-left, Y down, units ${unit || 'px'}. Same frame as the MapNC heightmap PNG.</desc>`,
+      `  <desc>Origin top-left, Y down, units ${unit || 'px'}. Same frame as the MapNC heightmap PNG.${o.credit ? ' ' + esc(o.credit) : ''}</desc>`,
     ];
     if (o.border) lines.push(`  <rect id="job-border" x="0" y="0" width="${num(w)}" height="${num(h)}" fill="none" stroke="#2563eb" stroke-width="${num(sw / 4)}"/>`);
     if (o.marks) {
@@ -78,6 +78,7 @@
     const w = W * k, h = H * k;
     const out = [];
     const g = (code, value) => { out.push(String(code), String(value)); };
+    if (o.credit) g(999, o.credit);
     g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(0, 'ENDSEC');
     g(0, 'SECTION'); g(2, 'TABLES');
     g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1); g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0); g(0, 'ENDTAB');
