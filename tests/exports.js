@@ -7,7 +7,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await ctx.route(/tile\.openstreetmap/, r => r.fulfill({ status: 200, contentType: 'image/png', body: fs.readFileSync(S + '/tile.png') }));
   await ctx.route('**/elevation.nationalmap.gov/**', r => r.fulfill({ status: 500, body: 'no elevation in this test' }));   // elevation never loads
   await ctx.route('**/s3.amazonaws.com/**', r => r.abort());
-  const pg = await ctx.newPage(); const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  const pg = await ctx.newPage(); await pg.addInitScript(() => { window.__MAPNC_FREE_PANES = true; }); const errs = []; pg.on('pageerror', e => errs.push(e.message));
   const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
   const txt = (id) => pg.locator('#' + id).innerText();
   const dl = async (sel, name) => { const [d] = await Promise.all([pg.waitForEvent('download', { timeout: 120000 }), pg.click(sel)]); const out = S + '/ex_' + name; await d.saveAs(out); return { out, name: d.suggestedFilename() }; };
@@ -18,9 +18,14 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('elevation unavailable (as set up)', !(await pg.locator('#hm-section').isVisible()));
   check('route export still offered', await pg.locator('#route-export').isVisible());
   check('layer info before choosing', /1410 × 2048 px/.test(await txt('layer-info')), await txt('layer-info'));
+  check('PNG tab is shown first, vector panel hidden', await pg.locator('#tabpanel-png').isVisible() && !(await pg.locator('#tabpanel-vec').isVisible()));
+  await pg.click('#tab-vec'); check('vector tab switches panels', await pg.locator('#tabpanel-vec').isVisible() && !(await pg.locator('#tabpanel-png').isVisible()) && (await pg.getAttribute('#tab-vec', 'aria-selected')) === 'true');
   check('vector hint says pixels without a carve size', /pixels/.test(await txt('vec-hint')));
 
   await pg.click('summary:has-text("Output size")'); await pg.fill('#carve-size', '12');
+  check('advice appears with a carve size', /stepover/.test(await txt('out-advice')), await txt('out-advice'));
+  await pg.fill('#stepover', '0.01'); await pg.waitForTimeout(100); check('too-coarse warning for a very fine stepover', /Too coarse/.test(await txt('out-advice')), await txt('out-advice'));
+  await pg.fill('#stepover', '5'); await pg.waitForTimeout(100); check('generous stepover is fine or over-provisioned', /sufficient|More than needed|only sampled/.test(await txt('out-advice')), await txt('out-advice')); await pg.fill('#stepover', '');
   // -- fast path: raw vs clean for the vector, same size PNG
   files.px = await dl('#export-dxf-btn', 'raw.dxf'); await pg.waitForTimeout(200);
   check('vector hint switches to millimetres', /millimetres/.test(await txt('vec-hint')));
@@ -31,6 +36,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.click('#clean-reset'); await pg.waitForTimeout(300);
 
   // -- route layer PNG at several sizes
+  await pg.click('#tab-png');
   files.same = await dl('#export-route-btn', 'same.png'); check('same-size layer saved', /_1410x2048_route\.png$/.test(files.same.name), files.same.name + ' | ' + await txt('route-export-status'));
   await pg.selectOption('#layer-size', '4'); check('4x info', /5640 × 8192 px/.test(await txt('layer-info')), await txt('layer-info'));
   const t0 = Date.now(); files.x4 = await dl('#export-route-btn', 'x4.png'); const t4 = ((Date.now() - t0) / 1000).toFixed(1);

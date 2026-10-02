@@ -18,24 +18,24 @@
       get: (t, k) => { if (k === 'shiftKey') return false; const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; },
     }));
   };
-  const map = L.map('map', { worldCopyJump: true, boxZoom: false }).setView([39.5, -98.35], 4);
+  const map = L.map('map', { worldCopyJump: true, boxZoom: false, maxZoom: 22 }).setView([39.5, -98.35], 4);
 
   // Base maps. className marks which ones the dark-mode filter may invert: it suits drawn maps, but would wreck photos.
   const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
   const baseLayers = {
     'Street (OpenStreetMap)': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, className: 'tiles-map', attribution: OSM_ATTR,
+      maxZoom: 22, maxNativeZoom: 19, className: 'tiles-map', attribution: OSM_ATTR,
     }),
     'Topographic (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-      maxZoom: 17, subdomains: 'abc', className: 'tiles-map',
+      maxZoom: 22, maxNativeZoom: 17, subdomains: 'abc', className: 'tiles-map',
       attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Style &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
     }),
     'Satellite (Esri World Imagery)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19, className: 'tiles-photo',
+      maxZoom: 22, maxNativeZoom: 19, className: 'tiles-photo',
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
     }),
     'USGS Topo (US only)': L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
-      maxZoom: 19, maxNativeZoom: 16, className: 'tiles-map',
+      maxZoom: 22, maxNativeZoom: 16, className: 'tiles-map',
       attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>',
     }),
   };
@@ -344,6 +344,18 @@
   const fmtKm = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m.toFixed(0) + ' m');
   const fmtDeg = (ll) => Math.abs(ll.lat).toFixed(4) + (ll.lat < 0 ? 'S ' : 'N ') + Math.abs(ll.lng).toFixed(4) + (ll.lng < 0 ? 'W' : 'E');
 
+  /** Is this pixel size enough for the carve? Judged against the finishing stepover (0.25 mm if none is given), and
+   *  against the source data's own spacing, which sets the real detail however many pixels there are. */
+  function resolutionAdvice(a) {
+    const step = a.stepMm > 0 ? a.stepMm : 0.25, given = a.stepMm > 0;
+    const needPx = Math.ceil(a.carveMm / step);
+    const stepTxt = step + ' mm' + (given ? '' : ' (typical; enter yours above)');
+    if (a.mmPx > step * 1.5) return { level: 'warn', text: 'Too coarse: pixels are ' + a.mmPx.toFixed(2) + ' mm on the carve, wider than a ' + stepTxt + ' stepover, so the toolpath will follow visible steps. Use about ' + needPx + ' px on the long side or more.' };
+    if (a.srcMm > step * 2) return { level: 'note', text: 'Pixel size is fine, but the elevation data itself is only sampled every ' + a.srcMm.toFixed(2) + ' mm on the carve, coarser than a ' + stepTxt + ' stepover. The extra pixels give a smooth surface, not extra detail. A smaller region or a higher-resolution source is the only way to add real detail.' };
+    if (a.mmPx < step / 4 && a.longPx > needPx * 2) return { level: 'note', text: 'More than needed: ' + a.mmPx.toFixed(3) + ' mm per pixel is far finer than a ' + stepTxt + ' stepover. About ' + needPx + ' px on the long side would do the same job with a smaller file.' };
+    return { level: 'ok', text: 'Resolution is sufficient: ' + a.mmPx.toFixed(2) + ' mm per pixel against a ' + stepTxt + ' stepover.' };
+  }
+
   function refresh() {
     if (!bounds) return;
     const g = Geo.groundSize(bounds);
@@ -367,8 +379,12 @@
       if (mm) {
         const mmPx = mm / Math.max(plan.grid.width, plan.grid.height);
         $('out-carve').textContent = mmPx.toFixed(3) + ' mm per pixel (' + (25.4 / mmPx).toFixed(0) + ' px/in)';
+        const longM = Math.max(g.widthM, g.heightM);
+        const adv = resolutionAdvice({ carveMm: mm, mmPx, srcMm: mm * plan.resolutionM / longM, longPx: Math.max(plan.grid.width, plan.grid.height), stepMm: parseFloat($('stepover').value) });
+        $('out-advice').textContent = adv.text; $('out-advice').className = 'hint ' + (adv.level === 'ok' ? '' : 'warning'); $('out-advice').hidden = false;
       } else {
         $('out-carve').textContent = 'enter a carve size above';
+        $('out-advice').hidden = true;
       }
     }
     const coarse = !tooBig && plan.outputResM > 100;
@@ -428,7 +444,7 @@
     $('track-info').hidden = false;
     $('track-fit').hidden = false;
     $('track-clear').hidden = false;
-    $('route-controls').hidden = false;
+    $('route-controls').hidden = false; $('route-guide-wrap').hidden = false;
     $('route-export').hidden = false;
     $('pane-clean').hidden = false;
     updateRouteExportInfo();
@@ -530,7 +546,7 @@
     if (trackLayer) { trackLayer.remove(); trackLayer = null; }
     if (rawLayer) { rawLayer.remove(); rawLayer = null; }
     $('track-file').value = '';
-    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'route-export', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
+    ['track-info', 'track-fit', 'track-clear', 'route-controls', 'route-guide-wrap', 'route-export', 'pane-clean'].forEach((id) => { $(id).hidden = true; });
     trackError('');
     if (elevation) recompute();
   });
@@ -673,7 +689,7 @@
       rangeMode: mode,
       manualLo: parseFloat($('range-lo').value),
       manualHi: parseFloat($('range-hi').value),
-      exaggeration: parseFloat($('exaggeration').value),
+      curve: { kind: $('curve-kind').value, strength: parseFloat($('curve-strength').value) },
       bits: Number($('bits-select').value),
       invert: $('invert').checked,
       route: routeBurn(),
@@ -740,6 +756,7 @@
     $('hm-level').textContent = grey.metresPerLevel < 0.01
       ? (grey.metresPerLevel * 1000).toFixed(2) + ' mm (' + (grey.maxVal + 1) + ' levels)'
       : grey.metresPerLevel.toFixed(3) + ' m (' + (grey.maxVal + 1) + ' levels)';
+    if (grey.curve) $('hm-level').textContent += ', average: the curve makes it vary';
     const clip = grey.clippedHigh + grey.clippedLow;
     $('hm-clip').textContent = clip ? (100 * clip / total).toFixed(1) + '% of samples (' +
       (grey.clippedHigh ? 'above window' : '') + (grey.clippedHigh && grey.clippedLow ? ', ' : '') + (grey.clippedLow ? 'below window' : '') + ')' : 'none';
@@ -782,7 +799,8 @@
     if (manual && !$('range-lo').value) { $('range-lo').value = Math.floor(elevation.min); $('range-hi').value = Math.ceil(elevation.max); }
     recompute();
   }));
-  ['range-lo', 'range-hi', 'exaggeration'].forEach((id) => $(id).addEventListener('input', scheduleRecompute));
+  ['range-lo', 'range-hi', 'curve-strength'].forEach((id) => $(id).addEventListener('input', scheduleRecompute));
+  $('curve-kind').addEventListener('change', () => { $('curve-strength-wrap').hidden = $('curve-kind').value === 'linear'; recompute(); });
   ['bits-select', 'invert', 'route-burn', 'route-shape', 'route-guide'].forEach((id) => $(id).addEventListener('change', recompute));
   $('route-amount').addEventListener('input', scheduleRecompute);
   $('route-width').addEventListener('input', () => { widthTouched = true; scheduleRecompute(); });
@@ -830,7 +848,8 @@
         Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','),
         ElevationWindowM: grey.lo.toFixed(3) + ',' + grey.hi.toFixed(3),
         Exaggeration: String(grey.k),
-        MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5),
+        MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5) + (grey.curve ? ' (average)' : ''),
+        HeightCurve: grey.curve ? grey.curve.kind + ' ' + grey.curve.strength : 'linear',
         Inverted: String($('invert').checked),
         ...routeMetadata(),
       }, 1, pixelsPerMetre());
@@ -1178,6 +1197,22 @@
   ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
   $('route-width').addEventListener('input', updateRouteExportInfo);
   ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
+  $('stepover').addEventListener('input', refresh);
+
+  // PNG / Vector tabs for the route export.
+  (function () {
+    const tabs = [['tab-png', 'tabpanel-png'], ['tab-vec', 'tabpanel-vec']];
+    const select = (id) => tabs.forEach(([t, p]) => {
+      const on = t === id; $(t).setAttribute('aria-selected', on ? 'true' : 'false'); $(t).tabIndex = on ? 0 : -1; $(p).hidden = !on;
+    });
+    tabs.forEach(([t], i) => {
+      $(t).addEventListener('click', () => select(t));
+      $(t).addEventListener('keydown', (e) => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        const n = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length][0]; select(n); $(n).focus();
+      });
+    });
+  })();
 
   function exportBaseName(d) {
     const b = d.bounds, p = (v, pos, neg) => Math.abs(v).toFixed(3) + (v < 0 ? neg : pos);
@@ -1240,10 +1275,21 @@
 
   $('source-select').addEventListener('change', () => { resetResult(); refresh(); scheduleAutoFetch(); });
 
-  // Collapsible panes remember whether they were open.
-  document.querySelectorAll('details.pane').forEach((d) => {
+  // Collapsible panes behave as an accordion: opening one closes the others. What is open is remembered.
+  const panes = Array.from(document.querySelectorAll('details.pane'));
+  let restoring = true;
+  panes.forEach((d) => {
     try { const v = localStorage.getItem('mapnc-pane-' + d.id); if (v !== null) d.open = v === '1'; } catch (e) { /* default state */ }
-    d.addEventListener('toggle', () => { try { localStorage.setItem('mapnc-pane-' + d.id, d.open ? '1' : '0'); } catch (e) { /* ignore */ } });
+  });
+  const firstOpen = panes.find((d) => d.open);
+  if (!window.__MAPNC_FREE_PANES) panes.forEach((d) => { if (d !== firstOpen) d.open = false; });
+  setTimeout(() => { restoring = false; }, 0);
+  panes.forEach((d) => {
+    d.addEventListener('toggle', () => {
+      if (restoring) return;
+      if (d.open && !window.__MAPNC_FREE_PANES) panes.forEach((o) => { if (o !== d && o.open) o.open = false; });   // the flag is for tests that need several panes readable at once
+      try { panes.forEach((o) => localStorage.setItem('mapnc-pane-' + o.id, o.open ? '1' : '0')); } catch (e) { /* ignore */ }
+    });
   });
 
   // Start with the sample route loaded so the whole flow can be tried straight away. "Clear route" removes it;

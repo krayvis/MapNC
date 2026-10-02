@@ -153,10 +153,14 @@
             <select id="carve-unit" aria-label="Carve size unit"><option value="in" selected>in</option><option value="mm">mm</option></select>
           </div>
         </div>
+        <label class="field">Finishing stepover (mm, optional)
+          <input id="stepover" type="number" min="0.01" step="any" placeholder="e.g. 0.25">
+        </label>
         <dl id="out-info" class="info" hidden>
           <dt>Pixel size</dt><dd id="out-px">–</dd>
           <dt>On the carve</dt><dd id="out-carve">–</dd>
         </dl>
+        <p id="out-advice" class="hint" hidden></p>
         <p class="hint">More pixels than the source has adds no real terrain detail, but gives CAD/CAM software a smooth surface and a smooth route line instead of visible steps. Entering the carve size also stores the real-world size in the PNG.</p>
       </div>
     </details>
@@ -175,8 +179,15 @@
               <label class="field">High (m)<input id="range-hi" type="number" step="any"></label>
             </div>
           </fieldset>
-          <label class="field">Vertical exaggeration
-            <input id="exaggeration" type="number" min="0.1" max="50" step="0.1" value="1">
+          <label class="field">Height curve
+            <select id="curve-kind">
+              <option value="linear" selected>Linear (true to the terrain)</option>
+              <option value="valleys">Emphasise valleys (more detail in low ground)</option>
+              <option value="peaks">Emphasise peaks (more detail in high ground)</option>
+            </select>
+          </label>
+          <label class="field" id="curve-strength-wrap" hidden>Curve strength (1 = none, 2 = moderate, 4 = strong)
+            <input id="curve-strength" type="number" min="1" max="8" step="0.1" value="2">
           </label>
           <label class="inline"><input type="checkbox" id="invert"> Invert (white = low)</label>
           <dl class="info">
@@ -184,30 +195,7 @@
             <dt>Per grey level</dt><dd id="hm-level">–</dd>
             <dt>Clipped</dt><dd id="hm-clip">–</dd>
           </dl>
-          <div id="route-controls" hidden>
-            <h3>Route in heightmap</h3>
-            <label class="inline"><input type="checkbox" id="route-burn" checked> Burn route into heightmap</label>
-            <label class="field">Line width (m on the ground)
-              <input id="route-width" type="number" min="1" step="any">
-            </label>
-            <label class="field">Raise / lower (% of grey range)
-              <input id="route-amount" type="number" min="-100" max="100" step="0.5" value="-3">
-            </label>
-            <p class="hint">Negative cuts a groove, positive raises a ridge. Applied to terrain height, before Invert.</p>
-            <label class="field">Profile
-              <select id="route-shape">
-                <option value="rounded" selected>Rounded (half-round section)</option>
-                <option value="uniform">Uniform (flat bottom, constant depth)</option>
-                <option value="v">V (tapers to a point)</option>
-              </select>
-            </label>
-            <label class="inline"><input type="checkbox" id="route-guide" checked> Show route on preview</label>
-            <dl class="info">
-              <dt>Line width</dt><dd id="route-px">–</dd>
-              <dt>Depth / height</dt><dd id="route-depth">–</dd>
-            </dl>
-            <p id="route-warning" class="warning" hidden></p>
-          </div>
+          <label class="inline" id="route-guide-wrap" hidden><input type="checkbox" id="route-guide" checked> Show route on preview</label>
           <canvas id="preview"></canvas>
           <p class="hint">Preview is 8-bit for display only. Black = lowest (white = lowest if inverted); magenta = no data (exported as black).</p>
         </div>
@@ -225,6 +213,29 @@
               <option value="8">8-bit greyscale PNG</option>
             </select>
           </label>
+          <div id="route-controls" hidden>
+            <h3>Route in heightmap</h3>
+            <label class="inline"><input type="checkbox" id="route-burn" checked> Burn route into heightmap</label>
+            <label class="field">Line width (m on the ground)
+              <input id="route-width" type="number" min="1" step="any">
+            </label>
+            <label class="field">Raise / lower (% of grey range)
+              <input id="route-amount" type="number" min="-100" max="100" step="0.5" value="-3">
+            </label>
+            <p class="hint">Negative cuts a groove, positive raises a ridge. Applied to terrain height, before Invert.</p>
+            <label class="field">Profile
+              <select id="route-shape">
+                <option value="rounded" selected>Rounded (half-round section)</option>
+                <option value="uniform">Uniform (flat bottom, constant depth)</option>
+                <option value="v">V (tapers to a point)</option>
+              </select>
+            </label>
+            <dl class="info">
+              <dt>Line width</dt><dd id="route-px">–</dd>
+              <dt>Depth / height</dt><dd id="route-depth">–</dd>
+            </dl>
+            <p id="route-warning" class="warning" hidden></p>
+          </div>
           <div class="row">
             <button id="export-btn" type="button">Export PNG</button>
           </div>
@@ -233,6 +244,11 @@
         <div id="route-export" hidden>
           <h3>Route export</h3>
           <p class="hint">These need only the region and the route, not the elevation data.</p>
+          <div class="tabs" role="tablist" aria-label="Route export format">
+            <button type="button" role="tab" id="tab-png" aria-controls="tabpanel-png" aria-selected="true">PNG layer</button>
+            <button type="button" role="tab" id="tab-vec" aria-controls="tabpanel-vec" aria-selected="false" tabindex="-1">Vector (SVG / DXF)</button>
+          </div>
+          <div id="tabpanel-png" role="tabpanel" aria-labelledby="tab-png">
           <label class="field">Route layer (PNG) size
             <select id="layer-size">
               <option value="1" selected>Same as the heightmap</option>
@@ -248,6 +264,8 @@
           <p id="layer-info" class="hint"></p>
           <div class="row"><button id="export-route-btn" type="button">Export route layer (PNG)</button></div>
           <p class="hint">Transparent PNG with a red line of the width set under Heightmap → Route (flat profile), framed exactly like the heightmap. A mostly empty image compresses to almost nothing, and it is drawn a strip at a time, so even very large sizes are fine to export (but your CAD/CAM or image editor must hold the whole bitmap to open it).</p>
+          </div>
+          <div id="tabpanel-vec" role="tabpanel" aria-labelledby="tab-vec" hidden>
           <label class="inline"><input type="checkbox" id="vec-border" checked> Include a job-border rectangle</label>
           <label class="inline"><input type="checkbox" id="vec-marks" checked> Include corner marks (L brackets at the four corners)</label>
           <p class="hint">Select the route together with the border or corner marks and scale the group: the border or marks span exactly the heightmap's extent, so scale that group to the heightmap's width and height (keep the aspect ratio locked), then delete them.</p>
@@ -256,6 +274,7 @@
             <button id="export-dxf-btn" type="button">Export DXF</button>
           </div>
           <p id="vec-hint" class="hint"></p>
+          </div>
           <p id="route-export-status" class="hint" role="status"></p>
         </div>
       </div>

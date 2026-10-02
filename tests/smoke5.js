@@ -16,7 +16,7 @@ const srv = http.createServer((q, r) => { const p = path.join(root, q.url.split(
     const arr = new Float32Array(w * h); for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) arr[j * w + i] = f(west + (i + .5) / w * (east - west), north - (j + .5) / h * (north - south));
     await route.fulfill({ status: 200, contentType: 'image/tiff', headers: { 'access-control-allow-origin': '*' }, body: mkTiff(arr, w, h) });
   });
-  const pg = await ctx.newPage(); const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  const pg = await ctx.newPage(); await pg.addInitScript(() => { window.__MAPNC_FREE_PANES = true; }); const errs = []; pg.on('pageerror', e => errs.push(e.message));
   const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
   await pg.goto('http://localhost:8131/?sample=off'); await pg.waitForTimeout(500);
 

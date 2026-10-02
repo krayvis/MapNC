@@ -13,7 +13,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
     const arr = new Float32Array(w * h); for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) arr[j * w + i] = f(west + (i + .5) / w * (east - west), north - (j + .5) / h * (north - south));
     await route.fulfill({ status: 200, contentType: 'image/tiff', headers: { 'access-control-allow-origin': '*' }, body: mkTiff(arr, w, h) });
   });
-  const pg = await ctx.newPage(); const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  const pg = await ctx.newPage(); await pg.addInitScript(() => { window.__MAPNC_FREE_PANES = true; }); const errs = []; pg.on('pageerror', e => errs.push(e.message));
   const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
   const ready = () => pg.waitForSelector('#result-info:not([hidden])', { timeout: 15000 });
   const sum = () => pg.evaluate(() => { const g = window.MapNC.grey.data; let s = 0; for (let i = 0; i < g.length; i += 7) s = (s * 31 + g[i]) % 1000000007; return s; });

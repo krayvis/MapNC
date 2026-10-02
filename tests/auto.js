@@ -18,7 +18,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
     await route.fulfill({ status: 200, contentType: 'image/tiff', headers: { 'access-control-allow-origin': '*' }, body: mkTiff(arr, w, h) });
   });
   await ctx.route('**/s3.amazonaws.com/**', r => r.abort());   // no Terrarium fallback in this test
-  const pg = await ctx.newPage(); const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  const pg = await ctx.newPage(); await pg.addInitScript(() => { window.__MAPNC_FREE_PANES = true; }); const errs = []; pg.on('pageerror', e => errs.push(e.message));
   const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
   const ready = () => pg.waitForSelector('#result-info:not([hidden])', { timeout: 15000 });
   const status = () => pg.locator('#status').innerText();

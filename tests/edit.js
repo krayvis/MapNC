@@ -13,7 +13,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
     const arr = new Float32Array(w * h); for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) arr[j * w + i] = f(west + (i + .5) / w * (east - west), north - (j + .5) / h * (north - south));
     await route.fulfill({ status: 200, contentType: 'image/tiff', headers: { 'access-control-allow-origin': '*' }, body: mkTiff(arr, w, h) });
   });
-  const pg = await ctx.newPage(); const errs = []; pg.on('pageerror', e => errs.push(e.message));
+  const pg = await ctx.newPage(); await pg.addInitScript(() => { window.__MAPNC_FREE_PANES = true; }); const errs = []; pg.on('pageerror', e => errs.push(e.message));
   const check = (n, ok, x) => console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : ''));
   const ready = () => pg.waitForSelector('#result-info:not([hidden])', { timeout: 15000 });
   const mapBox = async () => pg.locator('#map').boundingBox();
@@ -103,7 +103,8 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   const nE = await pts();
   await pg.click('#edit-done'); check('Done returns to the main sidebar', await pg.locator('#main-view').isVisible() && !(await pg.locator('#edit-view').isVisible()));
   check('main sidebar summarises the manual edits', /Manual edits: 1 change/.test(await pg.locator('#edit-summary').innerText()), await pg.locator('#edit-summary').innerText());
-  if (!(await pg.locator('#export-dxf-btn').isVisible())) await pg.click('summary:has-text("Export")');
+  if (!(await pg.locator('#tab-vec').isVisible())) await pg.click('summary:has-text("Export")');
+  await pg.click('#tab-vec');
   const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#export-dxf-btn')]); const dxfPath = S + '/edit.dxf'; await dl.saveAs(dxfPath);
   const nv = (fs.readFileSync(dxfPath, 'utf8').match(/\nVERTEX\n/g) || []).length - 4 - 12;   // minus the 4 border corners and the 12 corner-mark points
   check('DXF export has the edited vertex count', nv === nE, `${nv} vs ${nE}`);
@@ -126,7 +127,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('points / length / edits readout', /\d+/.test(await pg.locator('#edit-points').innerText()) && /km/.test(await pg.locator('#edit-length').innerText()) && /change/.test(await pg.locator('#edit-count').innerText()), `${await pg.locator('#edit-points').innerText()} | ${await pg.locator('#edit-length').innerText()} | ${await pg.locator('#edit-count').innerText()}`);
 
   // J. pan on empty map while editing; and with editing off a vertex drag pans instead
-  await goto(MOVING, 20); v = (await view()).list; const cA = await center(); const [px, py] = await abs({ x: 780, y: 850 });
+  await goto(MOVING, 19); v = (await view()).list; const cA = await center(); const [px, py] = await abs({ x: 780, y: 850 });
   await drag(px, py, px + 80, py + 60); const cB = await center(); check('empty map still pans in edit mode', Math.hypot(cB[0] - cA[0], cB[1] - cA[1]) > 1e-6);
   await pg.click('#edit-done'); check('edit mode off removes handles', (await view()).list.length === 0 && !(await view()).on);
   await goto(MOVING, 20); const trackBefore = await pg.evaluate(() => JSON.stringify(window.MapNC.track().segments[0].slice(1990, 2010)));

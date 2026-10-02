@@ -6,6 +6,12 @@
  * lo + (hi - lo)/k clips to white. No-data samples always become grey 0. `invert` flips the result afterwards.
  * Metres per grey level = (hi - lo) / (k * maxVal).
  *
+ * Tone curve (opts.curve = { kind: 'valleys' | 'peaks', strength >= 1 }): the window position u = (z - lo) / (hi - lo)
+ *   (clamped to 0..1) is bent before the rest of the mapping. 'valleys' uses u^(1/strength), which spends more grey
+ *   levels on low ground (flat valley floors read as relief); 'peaks' uses u^strength, which spends them on high ground.
+ *   Linear (no curve) is the default. With a curve, metres per grey level is no longer constant; `metresPerLevel` is then
+ *   the average over the window.
+ *
  * Route burn (opts.route = { weight: Float32Array 0..1, fraction }): after the mapping above and before clamping,
  *   t += weight * fraction.   `fraction` is a share of the full grey range (so +0.03 raises the route by 3 % of the
  *   range, -0.03 cuts a groove of that depth). It is applied to terrain height, BEFORE `invert`, so "raise" always
@@ -34,6 +40,8 @@
     const k = opts.exaggeration > 0 ? opts.exaggeration : 1;
     const { lo, hi } = resolveRange(opts.stats, opts.rangeMode, opts.manualLo, opts.manualHi);
     const scale = k / (hi - lo);
+    const cv = opts.curve && opts.curve.strength > 1 && (opts.curve.kind === 'valleys' || opts.curve.kind === 'peaks') ? opts.curve : null;
+    const gamma = cv ? (cv.kind === 'valleys' ? 1 / cv.strength : cv.strength) : 1;
     const out = bits === 8 ? new Uint8Array(elev.length) : new Uint16Array(elev.length);
     const route = opts.route && opts.route.weight ? opts.route : null;
     let clippedHigh = 0, clippedLow = 0, nodata = 0;
@@ -41,12 +49,13 @@
       const z = elev[i];
       if (z !== z) { nodata++; out[i] = 0; continue; }
       let t = (z - lo) * scale;
+      if (cv) { const u = t / k; if (u > 0 && u < 1) t = Math.pow(u, gamma) * k; }   // outside the window it clips as before
       if (route) t += route.weight[i] * route.fraction;
       if (t > 1) { clippedHigh++; t = 1; } else if (t < 0) { clippedLow++; t = 0; }
       const g = Math.round(t * maxVal);
       out[i] = opts.invert ? maxVal - g : g;
     }
-    return { data: out, bits, maxVal, lo, hi, k, metresPerLevel: (hi - lo) / (k * maxVal), clippedHigh, clippedLow, nodata };
+    return { data: out, bits, maxVal, lo, hi, k, curve: cv ? { kind: cv.kind, strength: cv.strength } : null, metresPerLevel: (hi - lo) / (k * maxVal), clippedHigh, clippedLow, nodata };
   }
 
   // ---- PNG ---------------------------------------------------------------------------------
