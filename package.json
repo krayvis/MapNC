@@ -2,7 +2,7 @@
   "name": "mapnc",
   "private": true,
   "description": "Region heightmaps and hike-route overlays for CNC relief carving. The app itself has no build step and no dependencies; this file exists only to run the tests.",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "serve": "python3 -m http.server 8000",
     "test": "node tests/run-all.js"

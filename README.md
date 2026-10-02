@@ -65,7 +65,7 @@ No build step: edit the files and reload. Serve the folder (`python3 -m http.ser
 | `vendor/` | Leaflet and geotiff.js (vendored) |
 | `PLAN.md` | Build plan, decisions and open risks |
 | `tests/` | Test scripts (Playwright and Node) and their README |
-| `LICENSE` | MIT |
+| `LICENSE` | PolyForm Noncommercial 1.0.0 |
 
 ## Known limits
 
@@ -77,7 +77,9 @@ No build step: edit the files and reload. Serve the folder (`python3 -m http.ser
 
 ## Licence
 
-MIT (see `LICENSE`) for the code in this repository. Vendored libraries and the data sources keep their own terms (below).
+[PolyForm Noncommercial 1.0.0](LICENSE), copyright 2026 Winston Moy. You are free to use, copy, modify and share MapNC for any noncommercial purpose, including personal projects, hobby carving, research, education and non-profit use. Commercial use, such as selling the software or offering it as a paid service, is not permitted without separate permission from the copyright holder. This is a source-available licence, not an OSI-approved open-source one.
+
+This covers MapNC's own code. The libraries in `vendor/` keep their own licences (Leaflet: BSD-2-Clause, geotiff.js: MIT; see `vendor/LEAFLET-LICENSE` and `vendor/GEOTIFF-LICENSE`), and the elevation data and map tiles are subject to their providers' terms (below).
 
 ## Data attribution
 
