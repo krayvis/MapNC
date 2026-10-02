@@ -158,7 +158,48 @@
     return { levels };
   }
 
-  const api = { contourLines, niceInterval, thin };
+  const ringArea = (pts) => { let a = 0; for (let i = 1; i < pts.length; i++) a += pts[i - 1].x * pts[i].y - pts[i].x * pts[i - 1].y; return Math.abs(a) / 2; };
+
+  /**
+   * Cut outlines for a stacked ("layered") map: for each level L, the boundary of the ground at or above L, as closed
+   * rings in heightmap pixels (same frame as contourLines), clipped square to the extent. A ring that follows the
+   * extent's edge runs exactly along it, so the lowest layer is the whole rectangle. No-data counts as below every
+   * level. Rings smaller than `minArea` square pixels are dropped (too small to cut).
+   * Returns [{ z, rings }] in the order of `levels`.
+   */
+  function layerOutlines(data, W, H, levels, opts) {
+    const o = opts || {}, minArea = o.minArea == null ? 4 : o.minArea;
+    const PW = W + 4, PH = H + 4, pad = new Float64Array(PW * PH);
+    const out = [];
+    for (const L of levels) {
+      // Shift so the level is 0, take it as the only contour (interval far above any relief), and ring the grid with
+      // a copy of its edge plus one very low layer: the boundary then sits on the outer copy, which is clamped to the extent.
+      for (let j = 0; j < PH; j++) {
+        for (let i = 0; i < PW; i++) {
+          const ii = Math.min(W - 1, Math.max(0, i - 2)), jj = Math.min(H - 1, Math.max(0, j - 2));
+          const outer = i === 0 || j === 0 || i === PW - 1 || j === PH - 1;
+          const v = data[jj * W + ii] - L;
+          pad[j * PW + i] = outer || v !== v ? -1e6 : v;
+        }
+      }
+      const rings = [];
+      const seg = segments(pad, PW, PH, 1e12).get(0);
+      for (const ln of seg ? chain(seg) : []) {
+        if (!ln.closed) continue;
+        let pts = ln.pts;
+        if (pts.length > 5) {
+          const mid = pts.length >> 1;
+          pts = thin(pts.slice(0, mid + 1), 0.25).concat(thin(pts.slice(mid), 0.25).slice(1));
+        }
+        pts = pts.map((p) => ({ x: Math.min(W, Math.max(0, p.x - 2)), y: Math.min(H, Math.max(0, p.y - 2)) }));
+        if (pts.length >= 4 && ringArea(pts) >= minArea) rings.push(pts);
+      }
+      out.push({ z: L, rings });
+    }
+    return out;
+  }
+
+  const api = { contourLines, layerOutlines, niceInterval, thin };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCContours = api;
 })(typeof self !== 'undefined' ? self : this);

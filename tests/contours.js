@@ -35,3 +35,20 @@ check('DXF has contour layers and no ROUTE layer', /\nCONTOURS\n/.test(dxf) && /
 check('DXF layer count is right', /\nLAYER\n70\n3\n/.test(dxf), dxf.match(/LAYER\n70\n\d+/)[0].replace(/\n/g, ' '));
 const x = [...svg.matchAll(/points="([^"]+)"/g)].flatMap((m) => m[1].split(' ').map((p) => +p.split(',')[0]));
 check('SVG coordinates are scaled to mm', Math.max(...x) < W * 0.5 + 1e-6 && Math.max(...x) > 30);
+// Layered-map outlines: a cone gives nested rings clipped square to the extent.
+{
+  const w = 100, h = 60, d = new Float32Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) d[j * w + i] = 100 - Math.hypot(i + 0.5 - 50, j + 0.5 - 30);
+  const lo = C.layerOutlines(d, w, h, [0, 50, 90, 200]);
+  const box = (l) => { const xs = l.rings.flatMap((g) => g.map((p) => p.x)), ys = l.rings.flatMap((g) => g.map((p) => p.y)); return [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]; };
+  check('lowest layer is exactly the whole rectangle', lo[0].rings.length === 1 && box(lo[0]).join() === '0,100,0,60', box(lo[0]).join());
+  check('a layer cut by the edge follows the extent', box(lo[1]).join() === '0,100,0,60');
+  const b = box(lo[2]);
+  check('a peak layer is a small closed ring', lo[2].rings.length === 1 && b[0] > 39.9 && b[1] < 60.1 && b[2] > 19.9 && b[3] < 40.1, b.join());
+  check('a level above the terrain has no ring', lo[3].rings.length === 0);
+  const vv = V.toLayersSvg(lo.slice(0, 3), w, h, { mmPerPx: 0.5, thickness: 3 }), vd = V.toLayersDxf(lo.slice(0, 3), w, h, { mmPerPx: 0.5 });
+  check('layers SVG has one numbered group per layer', (vv.match(/<g id="layer-0\d"/g) || []).length === 3 && /class="label"[^>]*>3</.test(vv));
+  check('layers DXF has CUT and LABELS layers', /\nCUT\n/.test(vd) && /\nLABELS\n/.test(vd) && (vd.match(/\nTEXT\n/g) || []).length === 3);
+  const lay = V.layout(lo.slice(0, 3), w, h, { mmPerPx: 0.5, gap: 5 });
+  check('sheet tiles do not overlap', lay.tiles[1].x >= lay.w + 5 - 1e-9 || lay.tiles[1].y >= lay.h + 5 - 1e-9, JSON.stringify(lay.tiles.map((t) => [t.x, t.y])));
+}

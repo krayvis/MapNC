@@ -56,5 +56,14 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   check('contours-only file has no route', /_contours\.svg$/.test(only.name) && !/id="route"/.test(only.text) && /<g id="contours"/.test(only.text), only.name);
   await pg.uncheck('#vec-contours'); await pg.click('#export-svg-btn');
   check('nothing selected gives a message, no file', /Nothing to export/.test(await txt('route-export-status')), await txt('route-export-status'));
+  // Laser-cut layers
+  await pg.click('#tab-layers');
+  check('layers export enabled with elevation and a carve size', !(await pg.locator('#layers-svg-btn').isDisabled()), await txt('layers-info'));
+  check('layers info mentions the stack and exaggeration', /10 layers of 3 mm make a 30 mm stack/.test(await txt('layers-info')) && /exaggerated/.test(await txt('layers-info')), await txt('layers-info'));
+  await pg.fill('#layer-count', '5');
+  const ls = await dl('#layers-svg-btn', 'l.svg'), ld = await dl('#layers-dxf-btn', 'l.dxf');
+  check('layers file name says layer count and thickness', /_5layers_3mm\.svg$/.test(ls.name), ls.name);
+  check('layers SVG has numbered groups', (ls.text.match(/<g id="layer-\d\d"/g) || []).length >= 2, String((ls.text.match(/<g id="layer-\d\d"/g) || []).length));
+  check('layers DXF has CUT layer', /\nCUT\n/.test(ld.text));
   console.log('page errors:', errs); await b.close(); process.exit(0);
 });

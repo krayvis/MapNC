@@ -103,7 +103,67 @@
     return out.join('\n') + '\n';
   }
 
-  const api = { toSvg, toDxf, polylines, cornerMarks };
+  /**
+   * Layered-map sheet (laser cutting): one tile per layer, laid out in a grid on a single sheet so every layer can be
+   * cut in one job. `layers` is [{ z, rings }] with rings in heightmap pixels (closed polylines); each layer's rings
+   * are its cut lines (outer edge and any holes). Units are millimetres (`opts.mmPerPx` is required). Cut lines are
+   * on layer CUT (red); a small label per tile ("1", the layer number) is on layer LABELS (blue), so it can be
+   * engraved or left out. Tiles read left to right, top to bottom, layer 1 (lowest) first.
+   * Returns { tiles: [{ n, z, x, y }], width, height, text? } via layout(); toLayersSvg/toLayersDxf return the file text.
+   */
+  function layout(layers, W, H, opts) {
+    const o = opts || {}, k = o.mmPerPx, w = W * k, h = H * k, gap = o.gap == null ? 5 : o.gap;
+    const n = layers.length, cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt(n * h / w)))), rows = Math.ceil(n / cols);
+    const tiles = layers.map((L, i) => ({ n: i + 1, z: L.z, rings: L.rings, x: (i % cols) * (w + gap), y: Math.floor(i / cols) * (h + gap) }));
+    return { tiles, w, h, cols, rows, width: cols * w + (cols - 1) * gap, height: rows * h + (rows - 1) * gap };
+  }
+
+  function toLayersSvg(layers, W, H, opts) {
+    const o = opts || {}, k = o.mmPerPx, L = layout(layers, W, H, o), unit = 'mm';
+    const fs = Math.max(2, Math.min(L.w, L.h) * 0.04);
+    const out = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${num(L.width)}${unit}" height="${num(L.height)}${unit}" viewBox="0 0 ${num(L.width)} ${num(L.height)}">`,
+      `  <title>${esc(o.title || 'MapNC layered map')}</title>`,
+      `  <desc>${layers.length} layers, ${num(L.w)} x ${num(L.h)} mm each${o.thickness ? ', ' + o.thickness + ' mm material' : ''}. Cut lines are red, labels blue. Origin top-left, Y down, units mm.${o.credit ? ' ' + esc(o.credit) : ''}</desc>`,
+    ];
+    for (const t of L.tiles) {
+      const d = t.rings.map((r) => 'M' + r.map((p) => num(t.x + p.x * k) + ' ' + num(t.y + p.y * k)).join(' L') + ' Z').join(' ');
+      out.push(`  <g id="layer-${String(t.n).padStart(2, '0')}">`);
+      out.push(`    <path class="cut" d="${d}" fill="none" stroke="#ff0000" stroke-width="0.1" stroke-linejoin="round"/>`);
+      out.push(`    <text class="label" x="${num(t.x + fs * 0.6)}" y="${num(t.y + fs * 1.6)}" font-family="sans-serif" font-size="${num(fs)}" fill="none" stroke="#0000ff" stroke-width="0.1">${t.n}</text>`);
+      out.push('  </g>');
+    }
+    out.push('</svg>', '');
+    return out.join('\n');
+  }
+
+  function toLayersDxf(layers, W, H, opts) {
+    const o = opts || {}, k = o.mmPerPx, L = layout(layers, W, H, o), out = [];
+    const g = (code, value) => { out.push(String(code), String(value)); };
+    const fs = Math.max(2, Math.min(L.w, L.h) * 0.04);
+    if (o.credit) g(999, o.credit);
+    g(0, 'SECTION'); g(2, 'HEADER'); g(9, '$ACADVER'); g(1, 'AC1009'); g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'TABLES');
+    g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1); g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0); g(0, 'ENDTAB');
+    g(0, 'TABLE'); g(2, 'LAYER'); g(70, 2);
+    g(0, 'LAYER'); g(2, 'CUT'); g(70, 0); g(62, 1); g(6, 'CONTINUOUS');
+    g(0, 'LAYER'); g(2, 'LABELS'); g(70, 0); g(62, 5); g(6, 'CONTINUOUS');
+    g(0, 'ENDTAB'); g(0, 'ENDSEC');
+    g(0, 'SECTION'); g(2, 'ENTITIES');
+    for (const t of L.tiles) {
+      for (const r of t.rings) {
+        g(0, 'POLYLINE'); g(8, 'CUT'); g(66, 1); g(70, 1);
+        for (const p of r) { g(0, 'VERTEX'); g(8, 'CUT'); g(10, num(t.x + p.x * k)); g(20, num(L.height - (t.y + p.y * k))); g(30, 0); }
+        g(0, 'SEQEND'); g(8, 'CUT');
+      }
+      g(0, 'TEXT'); g(8, 'LABELS'); g(10, num(t.x + fs * 0.6)); g(20, num(L.height - (t.y + fs * 1.6))); g(30, 0); g(40, num(fs)); g(1, t.n);
+    }
+    g(0, 'ENDSEC'); g(0, 'EOF');
+    return out.join('\n') + '\n';
+  }
+
+  const api = { toSvg, toDxf, toLayersSvg, toLayersDxf, layout, polylines, cornerMarks };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCVector = api;
 })(typeof self !== 'undefined' ? self : this);

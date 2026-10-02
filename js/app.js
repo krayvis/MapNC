@@ -1248,12 +1248,14 @@
   /** Shows the layer export once there is a route or elevation; contour controls wait for elevation. */
   function syncVectorUi() {
     $('route-export').hidden = !(track || elevation);
+    $('extras-empty').hidden = !$('route-export').hidden;
     $('vec-contours').disabled = !elevation;
     $('contour-need').hidden = !!elevation;
     $('export-route-btn').disabled = !track;
     updateContourInfo();
     updateOsmInfo();
     updateRouteExportInfo();
+    updateLayersUi();
   }
   ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
   $('route-width').addEventListener('input', updateRouteExportInfo);
@@ -1262,7 +1264,7 @@
 
   // PNG / Vector tabs for the route export.
   (function () {
-    const tabs = [['tab-png', 'tabpanel-png'], ['tab-vec', 'tabpanel-vec']];
+    const tabs = [['tab-png', 'tabpanel-png'], ['tab-vec', 'tabpanel-vec'], ['tab-layers', 'tabpanel-layers']];
     const select = (id) => tabs.forEach(([t, p]) => {
       const on = t === id; $(t).setAttribute('aria-selected', on ? 'true' : 'false'); $(t).tabIndex = on ? 0 : -1; $(p).hidden = !on;
     });
@@ -1415,6 +1417,44 @@
   }
   $('export-svg-btn').addEventListener('click', () => vectorExport('svg'));
   $('export-dxf-btn').addEventListener('click', () => vectorExport('dxf'));
+
+  // ---- laser-cut layers (a stack of constant-height outlines) -----------------------------------
+  /** Plan for the layered export from the inputs, or { why } when something is missing. */
+  function layersPlan() {
+    if (!elevation) return { why: 'Waiting for the elevation data.' };
+    const mm = carveLongMm();
+    if (!mm) return { why: 'Enter a carve size under Output size: the layers are cut at that size.' };
+    const n = Math.round(parseFloat($('layer-count').value)), t = parseFloat($('layer-mm').value);
+    if (!(t > 0)) return { why: 'Enter the material thickness.' };
+    if (!(n >= 2 && n <= 100)) return { why: 'Use between 2 and 100 layers.' };
+    const p = currentParams(), range = HM.resolveRange(p.stats, p.rangeMode, p.manualLo, p.manualHi);
+    const iv = (range.hi - range.lo) / n, grid = exportGrid(), gs = Geo.groundSize(grid.bounds), longM = Math.max(gs.widthM, gs.heightM);
+    return { n, t, mm, iv, lo: range.lo, hi: range.hi, mmPerPx: mm / Math.max(grid.W, grid.H), exaggeration: (t / iv) / (mm / longM) };
+  }
+  function updateLayersUi() {
+    const pl = layersPlan();
+    $('layers-need').hidden = !pl.why; $('layers-need').textContent = pl.why || '';
+    $('layers-svg-btn').disabled = $('layers-dxf-btn').disabled = !!pl.why;
+    $('layers-info').textContent = pl.why ? '' : pl.n + ' layers of ' + pl.t + ' mm make a ' + (pl.n * pl.t) + ' mm stack. Each layer is ' + (pl.iv >= 10 ? pl.iv.toFixed(0) : pl.iv.toFixed(1)) +
+      ' m of height (' + pl.lo.toFixed(0) + ' to ' + pl.hi.toFixed(0) + ' m), so the relief is exaggerated about ' + pl.exaggeration.toFixed(1) + '×.';
+  }
+  ['layer-mm', 'layer-count', 'carve-size', 'carve-unit', 'range-lo', 'range-hi'].forEach((id) => $(id).addEventListener('input', updateLayersUi));
+  document.querySelectorAll('input[name="range-mode"]').forEach((r) => r.addEventListener('change', updateLayersUi));
+  function layersExport(kind) {
+    const pl = layersPlan();
+    if (pl.why) { routeStatus(pl.why); return; }
+    const grid = exportGrid();
+    const levels = Array.from({ length: pl.n }, (_, i) => pl.lo + i * pl.iv);
+    const minArea = Math.pow(1 / pl.mmPerPx, 2);       // drop islands under 1 mm square: too small to cut
+    const layers = Contours.layerOutlines(elevation.data, grid.W, grid.H, levels, { minArea }).filter((l) => l.rings.length);
+    if (!layers.length) { routeStatus('Nothing to cut: the ground is flat across this range.'); return; }
+    const o = { mmPerPx: pl.mmPerPx, thickness: pl.t, title: 'MapNC layered map', credit: '' };
+    const text = kind === 'svg' ? Vec.toLayersSvg(layers, grid.W, grid.H, o) : Vec.toLayersDxf(layers, grid.W, grid.H, o);
+    const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });
+    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + layers.length + 'layers_' + pl.t + 'mm.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + layers.length + ' layers, mm).');
+  }
+  $('layers-svg-btn').addEventListener('click', () => layersExport('svg'));
+  $('layers-dxf-btn').addEventListener('click', () => layersExport('dxf'));
 
   $('source-select').addEventListener('change', () => { resetResult(); refresh(); scheduleAutoFetch(); });
 
