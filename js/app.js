@@ -418,16 +418,17 @@
   });
 
   // Sample route shipped with the site (same origin, so no CORS and nothing leaves the browser).
-  $('track-sample').addEventListener('click', async () => {
+  async function loadSample(quiet) {
     try {
       const res = await fetch('samples/sierra-buttes-fire-lookout.gpx');
       if (!res.ok) throw new Error('HTTP ' + res.status);
       $('track-file').value = '';
       loadTrackText(await res.text(), 'sierra-buttes-fire-lookout.gpx');
     } catch (err) {
-      trackError('Could not load the sample route: ' + err.message + '. (It needs the page to be served over http, not opened as a file.)');
+      if (!quiet) trackError('Could not load the sample route: ' + err.message + '. (It needs the page to be served over http, not opened as a file.)');
     }
-  });
+  }
+  $('track-sample').addEventListener('click', () => loadSample(false));
 
   $('track-fit').addEventListener('click', () => track && fitToTrack());
   $('track-clear').addEventListener('click', () => {
@@ -705,4 +706,8 @@
   });
 
   $('source-select').addEventListener('change', () => { resetResult(); refresh(); });
+
+  // Start with the sample route loaded so the whole flow can be tried straight away. "Clear route" removes it;
+  // add ?sample=off to the address to start empty.
+  if (new URLSearchParams(location.search).get('sample') !== 'off') loadSample(true);
 })();

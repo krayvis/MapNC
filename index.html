@@ -61,7 +61,7 @@
       <label class="field">GPX or TCX file
         <input id="track-file" type="file" accept=".gpx,.tcx,application/gpx+xml,application/xml,text/xml">
       </label>
-      <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it.</p>
+      <p class="hint">Read locally in your browser; nothing is uploaded. Loading a route fits the region to it. A sample route is loaded to start; use <b>Clear route</b> to remove it.</p>
       <button id="track-sample" type="button">Load sample route</button>
       <p class="hint">Sample: a hike to the Sierra Buttes Fire Lookout, California (1.3 × 1.9 km, 3DEP coverage).</p>
       <div class="row">
@@ -69,7 +69,7 @@
           <input id="track-margin" type="number" min="0" max="200" step="1" value="15">
         </label>
         <button id="track-fit" type="button" hidden>Re-fit region</button>
-        <button id="track-clear" type="button" hidden>Remove</button>
+        <button id="track-clear" type="button" hidden>Clear route</button>
       </div>
       <p id="track-info" class="hint" hidden></p>
       <p id="track-error" class="warning" hidden></p>
