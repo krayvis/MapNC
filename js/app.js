@@ -8,11 +8,42 @@
   const drawBtn = $('draw-btn');
   const clearBtn = $('clear-btn');
 
-  const map = L.map('map', { worldCopyJump: true }).setView([39.5, -98.35], 4);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(map);
+  // Shift+drag is Leaflet's box-zoom gesture, and its Draggable refuses any drag that starts with Shift held. This app
+  // uses Shift (like Ctrl/Cmd/Alt) to resize a rectangle from its centre, so box-zoom is off and marker handles are
+  // allowed to start a drag with Shift down. (Leaflet is vendored at a fixed version, so patching this one check is safe.)
+  const origOnDown = L.Draggable.prototype._onDown;
+  L.Draggable.prototype._onDown = function (e) {
+    if (!e.shiftKey || !this._element || !this._element.classList.contains('leaflet-marker-icon')) return origOnDown.call(this, e);
+    return origOnDown.call(this, new Proxy(e, {
+      get: (t, k) => { if (k === 'shiftKey') return false; const v = t[k]; return typeof v === 'function' ? v.bind(t) : v; },
+    }));
+  };
+  const map = L.map('map', { worldCopyJump: true, boxZoom: false }).setView([39.5, -98.35], 4);
+
+  // Base maps. className marks which ones the dark-mode filter may invert: it suits drawn maps, but would wreck photos.
+  const OSM_ATTR = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+  const baseLayers = {
+    'Street (OpenStreetMap)': L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, className: 'tiles-map', attribution: OSM_ATTR,
+    }),
+    'Topographic (OpenTopoMap)': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+      maxZoom: 17, subdomains: 'abc', className: 'tiles-map',
+      attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, SRTM | Style &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
+    }),
+    'Satellite (Esri World Imagery)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, className: 'tiles-photo',
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    }),
+    'USGS Topo (US only)': L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19, maxNativeZoom: 16, className: 'tiles-map',
+      attribution: 'Tiles courtesy of the <a href="https://usgs.gov/">U.S. Geological Survey</a>',
+    }),
+  };
+  let baseName = 'Street (OpenStreetMap)';
+  try { const saved = localStorage.getItem('mapnc-basemap'); if (saved && baseLayers[saved]) baseName = saved; } catch (e) { /* storage unavailable: default map */ }
+  baseLayers[baseName].addTo(map);
+  L.control.layers(baseLayers, null, { collapsed: true, position: 'topright' }).addTo(map);
+  map.on('baselayerchange', (e) => { try { localStorage.setItem('mapnc-basemap', e.name); } catch (err) { /* ignore */ } });
   L.control.scale({ imperial: false }).addTo(map);
   window.MapNC = { map, get elevation() { return elevation; }, get grey() { return grey; }, region: () => bounds }; // handle for debugging and automated tests
 
@@ -31,6 +62,20 @@
     updateCapText();
     refresh();
   });
+
+  // Holding Shift, Ctrl, Cmd or Alt/Option while dragging makes the rectangle resize from its centre (mouse only: touch has no keys).
+  let centreMod = false;
+  let redoCornerDrag = null;       // set while a corner drag is active; re-runs it when the key state changes
+  function setCentreMod(v) {
+    if (v === centreMod) return;
+    centreMod = v;
+    if (redoCornerDrag) redoCornerDrag();
+    else if (activePointer !== null && anchor && lastDrawPoint) redrawFromPointer();
+  }
+  const modOf = (e) => !!(e.shiftKey || e.ctrlKey || e.metaKey || e.altKey);
+  ['keydown', 'keyup'].forEach((t) => document.addEventListener(t, (e) => setCentreMod(modOf(e))));
+  ['pointermove', 'mousemove'].forEach((t) => document.addEventListener(t, (e) => setCentreMod(modOf(e)), true));
+  window.addEventListener('blur', () => setCentreMod(false));   // a key released outside the window never fires keyup
 
   // ---- drawing -----------------------------------------------------------------------------
 
@@ -54,14 +99,21 @@
     activePointer = e.pointerId;
     mapEl.setPointerCapture(e.pointerId);
     anchor = map.mouseEventToLatLng(e);
+    lastDrawPoint = anchor;
     setBounds(Geo.normalizeBounds(anchor, anchor));
     e.preventDefault();
   });
 
+  let lastDrawPoint = null;
+  function redrawFromPointer() {
+    // With the modifier held the press point is the rectangle's centre; otherwise it is a fixed corner.
+    if (centreMod) setBounds(Geo.centredBounds(anchor, lastDrawPoint, ratio));
+    else setBounds(Geo.normalizeBounds(anchor, ratio ? Geo.constrainCorner(anchor, lastDrawPoint, ratio) : lastDrawPoint));
+  }
   mapEl.addEventListener('pointermove', (e) => {
     if (e.pointerId !== activePointer) return;
-    const point = map.mouseEventToLatLng(e);
-    setBounds(Geo.normalizeBounds(anchor, ratio ? Geo.constrainCorner(anchor, point, ratio) : point));
+    lastDrawPoint = map.mouseEventToLatLng(e);
+    redrawFromPointer();
   });
 
   function endDrag(e) {
@@ -132,22 +184,31 @@
         icon: L.divIcon({ className: '', html: '<div class="corner-handle"></div>', iconSize: [0, 0] }),
       }).addTo(map);
       m._key = c.key;
-      let fixed = null;                              // the opposite corner, fixed for the whole drag
-      m.on('dragstart', () => { fixed = cornerLatLngs().find((x) => x.key === OPPOSITE[m._key]).ll; });
-      m.on('drag', () => {
-        let pt = m.getLatLng();
-        if (ratio) pt = Geo.constrainCorner(fixed, pt, ratio);
-        m.setLatLng(pt);                             // keep the handle on the (possibly constrained) corner
-        // Dragging past the fixed corner flips which corner this handle is: relabel so no two handles collide.
-        const key = (pt.lat >= fixed.lat ? 'n' : 's') + (pt.lng >= fixed.lng ? 'e' : 'w');
+      let fixed = null, centre = null, raw = null;   // opposite corner and centre as they were when the drag began
+      const step = () => {
+        if (!raw) return;                            // a key was pressed before the first drag movement
+        const key0 = (raw.lat >= (centreMod ? centre.lat : fixed.lat) ? 'n' : 's') + (raw.lng >= (centreMod ? centre.lng : fixed.lng) ? 'e' : 'w');
+        const next = centreMod
+          ? Geo.centredBounds(centre, raw, ratio)
+          : Geo.normalizeBounds(fixed, ratio ? Geo.constrainCorner(fixed, raw, ratio) : raw);
+        // Dragging past the fixed corner (or centre) flips which corner this handle is: relabel so none collide.
         const others = handles.filter((h) => h !== m);
         const anchorHandle = others.find((h) => h._key === OPPOSITE[m._key]) || others[0];
-        const rest = ['sw', 'se', 'ne', 'nw'].filter((k) => k !== key && k !== OPPOSITE[key]);
-        m._key = key;
-        anchorHandle._key = OPPOSITE[key];
+        const rest = ['sw', 'se', 'ne', 'nw'].filter((k) => k !== key0 && k !== OPPOSITE[key0]);
+        m._key = key0;
+        anchorHandle._key = OPPOSITE[key0];
         others.filter((h) => h !== anchorHandle).forEach((h, i) => { h._key = rest[i]; });
-        setBounds(Geo.normalizeBounds(fixed, pt));
+        const corner = { sw: [next.south, next.west], se: [next.south, next.east], ne: [next.north, next.east], nw: [next.north, next.west] }[key0];
+        m.setLatLng(corner);                         // keep the handle on the (constrained / mirrored) corner
+        setBounds(next);
+      };
+      m.on('dragstart', () => {
+        fixed = cornerLatLngs().find((x) => x.key === OPPOSITE[m._key]).ll;
+        centre = Geo.centreOf(bounds);
+        redoCornerDrag = step;
       });
+      m.on('drag', () => { raw = m.getLatLng(); step(); });
+      m.on('dragend', () => { redoCornerDrag = null; });
       return m;
     });
 
@@ -224,6 +285,36 @@
     applyRatio();
   });
 
+  // ---- output resolution + carve size ------------------------------------------------------
+
+  const RES_DEFAULTS = { scale: { value: 4, label: 'Scale (× finer than the source)' }, pixels: { value: 3000, label: 'Pixels on the long side' }, mpp: { value: 2, label: 'Metres per pixel' } };
+
+  function resSpec() {
+    const mode = $('res-mode').value;
+    return { mode, value: parseFloat($('res-value').value) };
+  }
+
+  $('res-mode').addEventListener('change', () => {
+    const mode = $('res-mode').value, d = RES_DEFAULTS[mode];
+    $('res-value-wrap').hidden = !d;
+    if (d) { $('res-value').value = d.value; $('res-value-label').textContent = d.label; }
+    resetResult();
+    refresh();
+  });
+  $('res-value').addEventListener('input', () => { resetResult(); refresh(); });
+
+  /** Carve length (long side) in mm, or null when not entered. */
+  function carveLongMm() {
+    const v = parseFloat($('carve-size').value);
+    return v > 0 ? v * ($('carve-unit').value === 'in' ? 25.4 : 1) : null;
+  }
+  ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', () => {
+    refresh();
+    if (elevation && grey) updateRouteReadout();
+  }));
+
+  const fmtM = (m) => (m >= 100 ? m.toFixed(0) : m >= 10 ? m.toFixed(1) : m.toFixed(2)) + ' m';
+
   // ---- readout -----------------------------------------------------------------------------
 
   const fmtKm = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m.toFixed(0) + ' m');
@@ -232,7 +323,7 @@
   function refresh() {
     if (!bounds) return;
     const g = Geo.groundSize(bounds);
-    const plan = Geo.planSource(bounds, $('source-select').value);
+    const plan = Geo.planSource(bounds, $('source-select').value, resSpec());
     const tooBig = plan.tooLarge || Geo.overCap(plan.grid);
 
     $('region-info').hidden = false;
@@ -243,12 +334,24 @@
     $('info-grid').textContent = plan.tooLarge ? '–' : plan.grid.width + ' × ' + plan.grid.height + ' px';
     $('info-source').textContent = plan.label + (plan.id === '3dep' && !plan.region ? ' (outside US coverage)' : '');
     $('info-res').textContent = plan.resolutionNote;
-    const coarse = !tooBig && plan.resolutionM > 100;
+    $('out-info').hidden = !!plan.tooLarge;
+    if (!plan.tooLarge) {
+      const f = plan.resolutionM / plan.outputResM;
+      $('out-px').textContent = fmtM(plan.outputResM) + ' per pixel' + (f > 1.05 ? ' (' + f.toFixed(1) + '× finer than source)' : f < 0.95 ? ' (coarser than source)' : ' (source resolution)');
+      const mm = carveLongMm();
+      if (mm) {
+        const mmPx = mm / Math.max(plan.grid.width, plan.grid.height);
+        $('out-carve').textContent = mmPx.toFixed(3) + ' mm per pixel (' + (25.4 / mmPx).toFixed(0) + ' px/in)';
+      } else {
+        $('out-carve').textContent = 'enter a carve size above';
+      }
+    }
+    const coarse = !tooBig && plan.outputResM > 100;
 
     const warn = $('cap-warning');
     warn.hidden = !tooBig && !coarse;
     if (coarse) {
-      warn.textContent = 'Large region: resolution drops to about ' + plan.resolutionM.toFixed(0) +
+      warn.textContent = 'Large region: resolution drops to about ' + plan.outputResM.toFixed(0) +
         ' m per pixel, so fine terrain detail will be lost. Draw a smaller rectangle for more detail.';
     } else if (tooBig) {
       warn.textContent = plan.tooLarge
@@ -296,12 +399,10 @@
     }
   }
 
-  $('track-file').addEventListener('change', async (ev) => {
-    const f = ev.target.files[0];
-    if (!f) return;
+  function loadTrackText(text, filename) {
     trackError('');
     try {
-      track = Track.parseTrackText(await f.text(), f.name);
+      track = Track.parseTrackText(text, filename);
     } catch (err) {
       trackError(err.message);
       return;
@@ -309,6 +410,23 @@
     widthTouched = false;
     showTrack();
     fitToTrack();
+  }
+
+  $('track-file').addEventListener('change', async (ev) => {
+    const f = ev.target.files[0];
+    if (f) loadTrackText(await f.text(), f.name);
+  });
+
+  // Sample route shipped with the site (same origin, so no CORS and nothing leaves the browser).
+  $('track-sample').addEventListener('click', async () => {
+    try {
+      const res = await fetch('samples/sierra-buttes-fire-lookout.gpx');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      $('track-file').value = '';
+      loadTrackText(await res.text(), 'sierra-buttes-fire-lookout.gpx');
+    } catch (err) {
+      trackError('Could not load the sample route: ' + err.message + '. (It needs the page to be served over http, not opened as a file.)');
+    }
   });
 
   $('track-fit').addEventListener('click', () => track && fitToTrack());
@@ -391,7 +509,9 @@
   function updateRouteReadout() {
     if (!track || !elevation) return;
     const r = routeRadiusPx(), widthPx = Math.max(2 * r, 1.5);
-    $('route-px').textContent = r > 0 ? widthPx.toFixed(1) + ' px (' + (widthPx * pixelMetres()).toFixed(0) + ' m)' : '–';
+    const mm = carveLongMm(), gs = Geo.groundSize(elevation.bounds);
+    const onCarve = mm ? ', about ' + ((widthPx * pixelMetres()) / Math.max(gs.widthM, gs.heightM) * mm).toFixed(2) + ' mm on the carve' : '';
+    $('route-px').textContent = r > 0 ? widthPx.toFixed(1) + ' px (' + (widthPx * pixelMetres()).toFixed(0) + ' m' + onCarve + ')' : '–';
     const pct = parseFloat($('route-amount').value) || 0;
     const metres = Math.abs(pct / 100) * (grey.hi - grey.lo) / grey.k;
     $('route-depth').textContent = pct === 0 ? 'none' : (pct < 0 ? 'cuts ' : 'raises ') +
@@ -470,6 +590,12 @@
     return name;
   }
 
+  /** Pixels per metre of the carve, for the PNG's pHYs chunk (null when no carve size is set). */
+  function pixelsPerMetre() {
+    const mm = carveLongMm();
+    return mm ? Math.max(elevation.width, elevation.height) / (mm / 1000) : null;
+  }
+
   function routeMetadata() {
     if (!track || !routeBurn()) return {};
     return {
@@ -501,7 +627,7 @@
         MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5),
         Inverted: String($('invert').checked),
         ...routeMetadata(),
-      });
+      }, 1, pixelsPerMetre());
       $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename()) + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
     } catch (err) {
       $('export-status').textContent = 'Export failed: ' + err.message;
@@ -528,7 +654,7 @@
         Software: 'MapNC',
         Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','),
         RouteWidthM: $('route-width').value,
-      }, 4);
+      }, 4, pixelsPerMetre());
       $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename().replace(/_(8|16)bit\.png$/, '_route.png')) +
         ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
     } catch (err) {
@@ -558,6 +684,7 @@
     try {
       const e = await window.MapNCSources.fetchElevation(fetchedBounds, $('source-select').value, {
         signal: controller.signal,
+        spec: resSpec(),
         onProgress: (f, msg) => { $('progress').value = f; $('status').textContent = msg; },
       });
       elevation = e;

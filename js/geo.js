@@ -101,50 +101,70 @@
     return grid.width > LIMITS.maxSide || grid.height > LIMITS.maxSide || grid.width * grid.height > LIMITS.maxSamples;
   }
 
-  /** Highest Terrarium zoom whose grid fits the cap and tile budget. Returns null if even z0..z8 fail. */
-  function pickTerrariumZoom(b) {
-    const mid = (b.south + b.north) / 2;
-    for (let z = LIMITS.maxTerrariumZoom; z >= 0; z--) {
-      const grid = gridFor(b, terrariumPixelM(mid, z));
-      const tiles = tileRange(b, z);
-      if (!overCap(grid) && tiles.count <= LIMITS.maxTiles) return { z, grid, tiles };
-    }
-    return null;
+  // ---- output resolution ---------------------------------------------------------------------
+  // The output grid's pixel size is chosen by the user and is independent of the source's true resolution. Upscaling
+  // adds no real detail, but it gives CAM software a smooth surface (and a smoothly rasterized route) instead of a
+  // visibly stair-stepped one. The source is always sampled with a smooth (cubic) filter when upscaling.
+
+  const AUTO_MIN_PX = 2048;               // Auto: long side is at least this many pixels
+  const TERRARIUM_NATIVE_RES_M = 30;      // honest data resolution for "scale x source" (SRTM-class); tiles are finer
+
+  function nativeResM(id) { return id === '3dep' ? DEP_NOMINAL_RES_M : TERRARIUM_NATIVE_RES_M; }
+
+  /**
+   * Metres per output pixel for a resolution spec { mode, value }:
+   *   auto   : long side >= AUTO_MIN_PX, never coarser than the source; relaxed to fit the size cap
+   *   scale  : value x finer than the source (4 = 4 times as many pixels per side as source samples)
+   *   pixels : value pixels on the long side
+   *   mpp    : value metres per pixel
+   */
+  function chooseResM(b, nativeRes, spec) {
+    const g = groundSize(b), longM = Math.max(g.widthM, g.heightM);
+    const mode = (spec && spec.mode) || 'auto', v = Number(spec && spec.value);
+    if (mode === 'scale') return v > 0 ? nativeRes / v : nativeRes;
+    if (mode === 'pixels') return v > 0 ? longM / v : nativeRes;
+    if (mode === 'mpp') return v > 0 ? v : nativeRes;
+    const target = Math.max(longM / nativeRes, AUTO_MIN_PX);
+    return Math.max(longM / target, longM / LIMITS.maxSide);   // a region too large for the cap is coarsened, not refused
+  }
+
+  /** Terrarium zoom whose tile pixels are at least as fine as resM (so tiles are upsampled, never stretched). */
+  function zoomForRes(latDeg, resM) {
+    const z = Math.ceil(Math.log2((EARTH_CIRC * Math.cos(latDeg * DEG)) / (256 * resM)));
+    return Math.max(0, Math.min(LIMITS.maxTerrariumZoom, z));
   }
 
   /**
-   * Choose a source. `pref` is 'auto' | '3dep' | 'terrarium'.
-   * Returns { id, label, resolutionM, resolutionNote, grid, zoom?, tiles?, fellBack? }.
+   * Choose a source and output grid. `pref` is 'auto' | '3dep' | 'terrarium'; `spec` is the resolution spec above.
+   * Returns { id, label, resolutionM (source), outputResM, resolutionNote, grid, interpolation?, zoom?, tiles?, tooLarge? }.
    */
-  function planSource(b, pref) {
+  function planSource(b, pref, spec) {
     const region = us3depRegion(b);
-    let id = pref;
-    let fellBack = false;
-    if (pref === 'auto') id = region ? '3dep' : 'terrarium';
+    const id = pref === 'auto' ? (region ? '3dep' : 'terrarium') : pref;
+    const native = nativeResM(id);
+    const outRes = chooseResM(b, native, spec);
+    const grid = gridFor(b, outRes);
+    const up = native / outRes;                                  // >1 means finer than the source
+    const factor = up > 1.05 ? ', output ' + up.toFixed(1) + '× finer (smooth cubic upscale)' : up < 0.95 ? ', output coarser than source' : '';
 
     if (id === '3dep') {
-      const grid = gridFor(b, DEP_NOMINAL_RES_M);
       return {
-        id, fellBack, region,
-        label: 'USGS 3DEP',
-        resolutionM: DEP_NOMINAL_RES_M,
-        resolutionNote: region ? '~10 m (1/3 arc-second)' : '~10 m where covered (outside CONUS/Hawaii, expect NoData)',
-        grid,
+        id, region, label: 'USGS 3DEP', resolutionM: native, outputResM: outRes, grid,
+        interpolation: up > 1.05 ? 'cubic' : 'bilinear',
+        resolutionNote: (region ? '~10 m (1/3 arc-second)' : '~10 m where covered (outside CONUS/Hawaii, expect NoData)') + factor,
       };
     }
-    const pick = pickTerrariumZoom(b);
-    if (!pick) {
-      return { id: 'terrarium', fellBack, label: 'AWS Terrain Tiles', resolutionM: null, resolutionNote: 'region too large', grid: gridFor(b, 1), tooLarge: true };
+    const mid = (b.south + b.north) / 2;
+    let z = zoomForRes(mid, outRes), tiles = tileRange(b, z);
+    while (tiles.count > LIMITS.maxTiles && z > 0) { z--; tiles = tileRange(b, z); }
+    if (tiles.count > LIMITS.maxTiles) {
+      return { id, region, label: 'AWS Terrain Tiles', resolutionM: native, outputResM: outRes, grid, resolutionNote: 'region too large', tooLarge: true };
     }
     return {
-      id: 'terrarium', fellBack,
-      label: 'AWS Terrain Tiles (Terrarium)',
-      resolutionM: pick.grid.resM,
-      resolutionNote: '~' + pick.grid.resM.toFixed(0) + ' m tile pixels (zoom ' + pick.z + '; source data is often coarser)',
-      grid: pick.grid, zoom: pick.z, tiles: pick.tiles,
+      id, region, label: 'AWS Terrain Tiles (Terrarium)', resolutionM: native, outputResM: outRes, grid, zoom: z, tiles,
+      resolutionNote: 'zoom ' + z + ' tiles (' + terrariumPixelM(mid, z).toFixed(0) + ' m pixels; data is often ~30 m)' + factor,
     };
   }
-
 
   // ---- rectangle editing (aspect lock, move) -------------------------------------------------
   // Ratios are GROUND ratios, east-west metres : north-south metres, i.e. what is physically carved, not map
@@ -188,6 +208,23 @@
   }
 
   /**
+   * Box centred on `c` whose corner is dragged to `point` (resize from the centre): the opposite corner mirrors, so the
+   * centre never moves. With a ratio, the box is forced to that ground ratio and still reaches the pointer on both axes.
+   * Half-extents use cos(latitude of the centre), which is also the box's mid-latitude, so the ground ratio is exact.
+   */
+  function centredBounds(c, point, ratio) {
+    const cosLat = Math.cos(c.lat * DEG);
+    let halfLon = Math.abs(point.lng - c.lng), halfLat = Math.abs(point.lat - c.lat);
+    if (ratio) {
+      const w = Math.max(halfLon * M_PER_DEG_LON_EQ * cosLat, halfLat * M_PER_DEG_LAT * ratio);   // half-width in metres
+      halfLon = w / (M_PER_DEG_LON_EQ * cosLat);
+      halfLat = w / ratio / M_PER_DEG_LAT;
+    }
+    halfLat = Math.min(halfLat, MAX_LAT - Math.abs(c.lat));       // stay inside +/-85 degrees latitude
+    return { south: c.lat - halfLat, north: c.lat + halfLat, west: c.lng - halfLon, east: c.lng + halfLon };
+  }
+
+  /**
    * Re-shape a box to a ground ratio about its centre. mode 'inside' shrinks one side to fit within the old box;
    * 'outside' grows one side so the old box fits within the new one (used when the box must keep containing a
    * route); 'area' keeps the ground area (same size, new shape; used when the ratio changes or is swapped).
@@ -213,7 +250,7 @@
     return a > 0 && c > 0 && Number.isFinite(a) && Number.isFinite(c) ? a / c : null;
   }
 
-  const api = { groundRatio, boxAround, centreOf, constrainCorner, reshapeBounds, moveBounds, parseRatio, LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, pickTerrariumZoom, planSource };
+  const api = { centredBounds, groundRatio, boxAround, centreOf, constrainCorner, reshapeBounds, moveBounds, parseRatio, LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, chooseResM, zoomForRes, nativeResM, AUTO_MIN_PX, planSource };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCGeo = api;
 })(typeof self !== 'undefined' ? self : this);

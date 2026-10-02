@@ -85,9 +85,10 @@
   /**
    * Encode samples as a PNG Blob. channels = 1: greyscale (Uint8Array for 8-bit, Uint16Array for 16-bit).
    * channels = 4: 8-bit RGBA (Uint8Array/Uint8ClampedArray of width*height*4), used for the route layer.
+   * pixelsPerMetre (optional) is written as a pHYs chunk.
    * Rows use PNG filter type 2 ("Up"), which suits smooth terrain; the first row uses type 0 (None). `text` adds tEXt chunks.
    */
-  async function encodePng(width, height, bits, samples, text, channels) {
+  async function encodePng(width, height, bits, samples, text, channels, pixelsPerMetre) {
     channels = channels === 4 ? 4 : 1;
     const bpp = bits === 16 ? 2 : 1;
     const rowBytes = width * bpp * channels;
@@ -112,6 +113,12 @@
     ihdr[8] = bits; ihdr[9] = channels === 4 ? 6 : 0;     // colour type 6 = RGBA, 0 = greyscale
     ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
     const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr)];
+    if (pixelsPerMetre > 0) {
+      // pHYs: physical pixel size, so CAM/image software that honours it imports the map at its real carve size.
+      const phys = new Uint8Array(9), pv = new DataView(phys.buffer), ppm = Math.round(pixelsPerMetre);
+      pv.setUint32(0, ppm); pv.setUint32(4, ppm); phys[8] = 1;   // unit 1 = metre
+      parts.push(chunk('pHYs', phys));
+    }
     for (const [key, value] of Object.entries(text || {})) {
       // tEXt = keyword, NUL, text (Latin-1). Sanitise each part separately so the NUL separator survives.
       const clean = (t) => String(t).replace(/[^\x20-\x7e]/g, '?');

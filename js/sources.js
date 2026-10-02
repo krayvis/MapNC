@@ -74,24 +74,39 @@
     await pool(jobs, CONCURRENCY, (d, n) => onProgress && onProgress(d / n, 'Terrarium tiles ' + d + '/' + n));
     checkAbort(signal);
 
-    // Resample mosaic (Web Mercator pixels, y-down) into the ground-correct lon/lat grid, bilinear.
+    // Resample mosaic (Web Mercator pixels, y-down) into the ground-correct lon/lat grid with Catmull-Rom bicubic.
+    // Bilinear would leave visible creases along the source pixel grid when upscaling; the result here is clamped to the
+    // range of the 16 samples used, so the filter's slight overshoot can never create a false peak or pit.
     const { width: W, height: H } = plan.grid;
     const out = new Float32Array(W * H);
     const ox = x0 * 256, oy = y0 * 256;
+    const wx = new Float64Array(4), wy = new Float64Array(4);
+    const cr = (t, w) => {            // Catmull-Rom weights for fractional position t
+      const t2 = t * t, t3 = t2 * t;
+      w[0] = -0.5 * t3 + t2 - 0.5 * t; w[1] = 1.5 * t3 - 2.5 * t2 + 1; w[2] = -1.5 * t3 + 2 * t2 + 0.5 * t; w[3] = 0.5 * t3 - 0.5 * t2;
+    };
+    const clampI = (v, hi) => (v < 0 ? 0 : v > hi ? hi : v);
     for (let j = 0; j < H; j++) {
       const lat = bounds.north - ((j + 0.5) / H) * (bounds.north - bounds.south);
-      // mercator pixel row (fractional) in the mosaic; centre of pixel k is at k + 0.5
-      const my = Geo.latToTileY(lat, z) * 256 - oy - 0.5;
-      const fy = Math.max(0, Math.min(mosaicH - 1, my));
-      const r0 = Math.floor(fy), r1 = Math.min(mosaicH - 1, r0 + 1), wy = fy - r0;
+      const my = Geo.latToTileY(lat, z) * 256 - oy - 0.5;             // fractional mosaic row (pixel centres at k)
+      const r1 = Math.floor(my);
+      cr(my - r1, wy);
       for (let i = 0; i < W; i++) {
         const lon = bounds.west + ((i + 0.5) / W) * (bounds.east - bounds.west);
         const mx = Geo.lonToTileX(lon, z) * 256 - ox - 0.5;
-        const fx = Math.max(0, Math.min(mosaicW - 1, mx));
-        const c0 = Math.floor(fx), c1 = Math.min(mosaicW - 1, c0 + 1), wx = fx - c0;
-        const a = mosaic[r0 * mosaicW + c0], b = mosaic[r0 * mosaicW + c1];
-        const c = mosaic[r1 * mosaicW + c0], d = mosaic[r1 * mosaicW + c1];
-        out[j * W + i] = (a * (1 - wx) + b * wx) * (1 - wy) + (c * (1 - wx) + d * wx) * wy;
+        const c1 = Math.floor(mx);
+        cr(mx - c1, wx);
+        let acc = 0, lo = Infinity, hi = -Infinity;
+        for (let dj = 0; dj < 4; dj++) {
+          const row = clampI(r1 - 1 + dj, mosaicH - 1) * mosaicW;
+          for (let di = 0; di < 4; di++) {
+            const v = mosaic[row + clampI(c1 - 1 + di, mosaicW - 1)];
+            acc += v * wx[di] * wy[dj];
+            if (v < lo) lo = v;
+            if (v > hi) hi = v;
+          }
+        }
+        out[j * W + i] = acc < lo ? lo : acc > hi ? hi : acc;
       }
     }
     return { data: out, width: W, height: H, bounds, sourceLabel: plan.label };
@@ -110,13 +125,14 @@
     return chunks;
   }
 
-  function depUrl(bbox, w, h) {
+  function depUrl(bbox, w, h, interpolation) {
     const p = new URLSearchParams({
       bbox: [bbox.west, bbox.south, bbox.east, bbox.north].join(','),
       bboxSR: '4326', imageSR: '4326',
       size: w + ',' + h,
       format: 'tiff', pixelType: 'F32',
-      interpolation: 'RSP_BilinearInterpolation',
+      // Cubic when the output is finer than the source: smoother than bilinear, no visible grid-aligned creases.
+      interpolation: interpolation === 'cubic' ? 'RSP_CubicConvolution' : 'RSP_BilinearInterpolation',
       f: 'image',
     });
     return DEP_URL + '?' + p.toString();
@@ -153,7 +169,7 @@
         west: bounds.west + c.x * dLon, east: bounds.west + (c.x + c.w) * dLon,
         north: bounds.north - c.y * dLat, south: bounds.north - (c.y + c.h) * dLat,
       };
-      const res = await fetch(depUrl(bbox, c.w, c.h), { signal });
+      const res = await fetch(depUrl(bbox, c.w, c.h, plan.interpolation), { signal });
       if (!res.ok) throw new Error('3DEP request failed: HTTP ' + res.status);
       const buf = await res.arrayBuffer();
       const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
@@ -189,7 +205,8 @@
    * choice never silently switches source. Returns the result plus { note } describing any fallback.
    */
   async function fetchElevation(bounds, pref, opts) {
-    const plan = Geo.planSource(bounds, pref);
+    const spec = opts && opts.spec;
+    const plan = Geo.planSource(bounds, pref, spec);
     if (plan.tooLarge || Geo.overCap(plan.grid)) throw new Error('Region exceeds the size cap.');
     let result, note = null;
     try {
@@ -197,7 +214,7 @@
     } catch (err) {
       if (err.name === 'AbortError' || pref !== 'auto' || plan.id !== '3dep') throw err;
       note = '3DEP failed (' + err.message + '); used AWS Terrain Tiles instead.';
-      const alt = Geo.planSource(bounds, 'terrarium');
+      const alt = Geo.planSource(bounds, 'terrarium', spec);
       if (alt.tooLarge || Geo.overCap(alt.grid)) throw err;
       result = await fetchTerrarium(bounds, alt, opts);
     }

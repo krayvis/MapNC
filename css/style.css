@@ -112,10 +112,16 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
 
 /* ---- Map in dark mode -------------------------------------------------------------------------
  * The OSM tiles are light. Rather than switch tile provider (a different data source and attribution), invert them
- * and rotate hue back so water stays bluish and roads stay light-on-dark. Only the tile pane is filtered; the
+ * and rotate hue back so water stays bluish and roads stay light-on-dark. Only the map tile layers are filtered; the
  * selection rectangle, track and handles sit in other panes and keep their colours. */
 .leaflet-container { background: var(--map-bg); }
-:root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9); }
+:root[data-theme="dark"] .leaflet-layer.tiles-map { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9); }
+:root[data-theme="dark"] .leaflet-layer.tiles-photo { filter: brightness(.8); }   /* photos are never inverted, just dimmed */
+
+.leaflet-control-layers { background: var(--bg); color: var(--fg); border: 1px solid var(--line); box-shadow: none; }
+.leaflet-control-layers-toggle { background-color: var(--bg); }
+:root[data-theme="dark"] .leaflet-control-layers-toggle { filter: invert(1) brightness(1.4); }   /* the stock icon is dark-on-light */
+.leaflet-control-layers label { margin: 2px 0; }
 
 .leaflet-bar a, .leaflet-bar a:hover {
   background-color: var(--bg); color: var(--fg); border-bottom-color: var(--line);
