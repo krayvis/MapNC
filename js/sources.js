@@ -13,6 +13,7 @@
   const TERRARIUM_URL = (z, x, y) => 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/' + z + '/' + x + '/' + y + '.png';
   const DEP_URL = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage';
   const DEP_CHUNK_PX = 2000;      // conservative per-request size until the service limit is read at runtime
+  const DEP_MAX_SIDE = 4000;      // exportImage's usual per-request cap (the request is made in degree-square pixels, see fetch3dep)
   const CONCURRENCY = 4;
   const DEG = Math.PI / 180;
 
@@ -137,13 +138,13 @@
     return DEP_URL + '?' + p.toString();
   }
 
-  /** Parse a float32 GeoTIFF; returns Float32Array (w*h) with nodata -> NaN. */
-  async function parseDepTiff(buf, w, h) {
+  /**
+   * Parse a float32 GeoTIFF into { data (nodata -> NaN), width, height, bbox: {west, south, east, north} }. The bbox is the
+   * extent the server actually returned, read from the file's own georeferencing (null if it carries none).
+   */
+  async function parseDepRaster(buf) {
     const tiff = await root.GeoTIFF.fromArrayBuffer(buf);
     const img = await tiff.getImage();
-    if (img.getWidth() !== w || img.getHeight() !== h) {
-      throw new Error('3DEP returned ' + img.getWidth() + '×' + img.getHeight() + ', expected ' + w + '×' + h);
-    }
     const rasters = await img.readRasters({ samples: [0] });
     const src = rasters[0];
     const nd = img.getGDALNoData();
@@ -151,6 +152,47 @@
     for (let i = 0; i < src.length; i++) {
       const v = src[i];
       out[i] = (!Number.isFinite(v) || (nd !== null && v === nd) || v < -9000 || v > 9000) ? NaN : v;
+    }
+    let bbox = null;
+    try { const b = img.getBoundingBox(); bbox = { west: b[0], south: b[1], east: b[2], north: b[3] }; } catch (e) { bbox = null; }
+    return { data: out, width: img.getWidth(), height: img.getHeight(), bbox };
+  }
+
+  /** Parse a float32 GeoTIFF that must be exactly w x h; returns Float32Array (w*h) with nodata -> NaN. */
+  async function parseDepTiff(buf, w, h) {
+    const r = await parseDepRaster(buf);
+    if (r.width !== w || r.height !== h) throw new Error('3DEP returned ' + r.width + '×' + r.height + ', expected ' + w + '×' + h);
+    return r.data;
+  }
+
+  /**
+   * Resample a raster that covers `have` (its real extent) onto the w x h grid covering `want`, bilinear in lon/lat and
+   * ignoring no-data neighbours. Row 0 is north. Needed because the service re-frames a request whose pixel aspect
+   * differs from its extent's degree aspect (it grows the extent instead of stretching the pixels), so the returned
+   * raster can cover more ground than was asked for.
+   */
+  function resampleToExtent(src, have, want, w, h) {
+    const out = new Float32Array(w * h);
+    const sw = src.width, sh = src.height;
+    const dLon = have.east - have.west, dLat = have.north - have.south;
+    for (let j = 0; j < h; j++) {
+      const lat = want.north - ((j + 0.5) / h) * (want.north - want.south);
+      const fy = ((have.north - lat) / dLat) * sh - 0.5;
+      const y0 = Math.floor(fy), ty = fy - y0;
+      for (let i = 0; i < w; i++) {
+        const lon = want.west + ((i + 0.5) / w) * (want.east - want.west);
+        const fx = ((lon - have.west) / dLon) * sw - 0.5;
+        const x0 = Math.floor(fx), tx = fx - x0;
+        let acc = 0, wt = 0;
+        for (let dj = 0; dj < 2; dj++) {
+          const yy = Math.min(sh - 1, Math.max(0, y0 + dj)), wy = dj ? ty : 1 - ty;
+          for (let di = 0; di < 2; di++) {
+            const v = src.data[yy * sw + Math.min(sw - 1, Math.max(0, x0 + di))], k = wy * (di ? tx : 1 - tx);
+            if (v === v && k > 0) { acc += v * k; wt += k; }
+          }
+        }
+        out[j * w + i] = wt > 0 ? acc / wt : NaN;
+      }
     }
     return out;
   }
@@ -213,8 +255,17 @@
         west: bounds.west + c.x * dLon, east: bounds.west + (c.x + c.w) * dLon,
         north: bounds.north - c.y * dLat, south: bounds.north - (c.y + c.h) * dLat,
       };
-      const buf = await fetchDepTiff(depUrl(bbox, c.w, c.h, plan.interpolation), signal);
-      const px = await parseDepTiff(buf, c.w, c.h);
+      // Ask for pixels that are square in DEGREES over this bbox. Our grid is ground-correct (square in metres), so its
+      // aspect differs from the bbox's degree aspect, and the service answers a mismatched request by quietly growing
+      // the extent rather than stretching it, which shifted the whole elevation grid against the route and map. Request
+      // a matching aspect, then resample the returned raster (using the extent its GeoTIFF reports) onto our grid.
+      let rw = Math.max(1, Math.round(c.h * (bbox.east - bbox.west) / (bbox.north - bbox.south))), rh = c.h;
+      const shrink = Math.min(1, DEP_MAX_SIDE / Math.max(rw, rh));
+      rw = Math.max(1, Math.round(rw * shrink)); rh = Math.max(1, Math.round(rh * shrink));
+      const raster = await parseDepRaster(await fetchDepTiff(depUrl(bbox, rw, rh, plan.interpolation), signal));
+      const have = raster.bbox || bbox;
+      const px = (raster.width === c.w && raster.height === c.h && Math.abs(have.west - bbox.west) + Math.abs(have.east - bbox.east) + Math.abs(have.north - bbox.north) + Math.abs(have.south - bbox.south) < 1e-9)
+        ? raster.data : resampleToExtent(raster, have, bbox, c.w, c.h);
       for (let row = 0; row < c.h; row++) out.set(px.subarray(row * c.w, (row + 1) * c.w), (c.y + row) * W + c.x);
     });
     await pool(jobs, CONCURRENCY, (d, n) => onProgress && onProgress(d / n, '3DEP requests ' + d + '/' + n));
@@ -259,7 +310,7 @@
     return Object.assign(result, s, { note });
   }
 
-  const api = { fetchElevation, fetchTerrarium, fetch3dep, depChunks, depUrl, parseDepTiff, terrariumMetres, stats };
+  const api = { fetchElevation, fetchTerrarium, fetch3dep, depChunks, depUrl, parseDepTiff, parseDepRaster, resampleToExtent, terrariumMetres, stats };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCSources = api;
 })(typeof self !== 'undefined' ? self : this);
