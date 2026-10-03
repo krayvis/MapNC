@@ -264,10 +264,40 @@
     return out;
   }
 
-  /** The track with a spline fitted through every point of every segment (tol in metres). */
-  function splineTrack(track, tolM) {
+  /**
+   * The finite smoothing choices (Gaussian sigma in metres, ascending) suited to this track, from its typical point
+   * spacing: from about one spacing (barely changes the line) to about a dozen (heavy), snapped to round numbers.
+   * Capped at a tenth of the track's length so a short track is never smoothed into a blob. Empty if too short.
+   */
+  function smoothingSteps(track) {
+    const f = localFrame(track), gaps = [];
+    let total = 0;
+    for (const seg of track.segments) {
+      for (let i = 1; i < seg.length; i++) { const d = dist(toXY(seg[i - 1], f), toXY(seg[i], f)); total += d; if (d > 1e-6) gaps.push(d); }
+    }
+    if (gaps.length < 3) return [];
+    gaps.sort((a, b) => a - b);
+    const spacing = gaps[gaps.length >> 1];
+    const nice = (x) => {
+      const dec = Math.pow(10, Math.floor(Math.log10(x))), m = x / dec;
+      return dec * [1, 1.5, 2, 3, 5, 7.5, 10].reduce((b, c) => (Math.abs(c - m) < Math.abs(b - m) ? c : b));
+    };
+    const out = [];
+    for (const mult of [1, 2, 3, 5, 8, 12]) {
+      const s = nice(Math.max(1, spacing * mult));
+      if (s <= total / 10 && (!out.length || s > out[out.length - 1])) out.push(s);
+    }
+    return out;
+  }
+
+  /**
+   * The track with a spline fitted through every point of every segment (tol in metres). With smoothM > 0 each segment is
+   * first Gaussian-smoothed (sigma in metres, ends fixed) and thinned, so the spline follows the smoothed line instead.
+   */
+  function splineTrack(track, tolM, smoothM) {
     const f = localFrame(track);
-    return makeTrack(track.name, track.segments.map((seg) => splineFit(seg.map((p) => toXY(p, f)), tolM).map((q) => toLL(q, f))));
+    const prep = (pts) => (smoothM > 0 ? simplify(smooth(pts, smoothM), Math.max(0.2, smoothM * 0.05)) : pts);
+    return makeTrack(track.name, track.segments.map((seg) => splineFit(prep(seg.map((p) => toXY(p, f))), tolM).map((q) => toLL(q, f))));
   }
 
   /**
@@ -511,7 +541,7 @@
     };
   }
 
-  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, splineTrack, splineFit, mergeBacktracks, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
+  const api = { copySegments, snapshotSegments, restoreSegments, deletePoints, insertPoint, cleanTrack, splineTrack, smoothingSteps, splineFit, mergeBacktracks, removeSpikes, minSpacing, smooth, simplify, resample, distToSeg, localFrame, parseTrackText, trackBounds, padBounds, trackLengthKm, toPixels, profile, rasterize, createBandRasterizer, makeTrack };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCTrack = api;
 })(typeof self !== 'undefined' ? self : this);

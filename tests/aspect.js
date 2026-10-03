@@ -74,6 +74,22 @@ const srv = http.createServer((q, r) => { const p = path.join(require('./lib.js'
   check('track fit locked 1:1', Math.abs(s.ratio - 1) < 1e-4, `${s.w}x${s.h}`);
   check('route inside rectangle', s.s <= 35.54 && s.n >= 35.62 && s.w_ <= -83.5 && s.e >= -83.3);
 
+  // 7b. a loaded route picks the orientation that suits its shape
+  const gpxOf = (pts) => ({ name: 't.gpx', mimeType: 'application/gpx+xml', buffer: Buffer.from('<?xml version="1.0"?><gpx version="1.1" creator="t"><trk><trkseg>' + pts.map(([la, lo]) => `<trkpt lat="${la}" lon="${lo}"></trkpt>`).join('') + '</trkseg></trk></gpx>') });
+  const tall = [[35.50, -83.45], [35.58, -83.44], [35.66, -83.46], [35.74, -83.45]], wide = [[35.60, -83.60], [35.61, -83.52], [35.60, -83.44], [35.61, -83.36]];
+  await pg.selectOption('#aspect-select', '4:3');
+  await pg.setInputFiles('#track-file', gpxOf(tall)); await pg.waitForTimeout(200); s = await st();
+  check('tall route + 4:3 -> portrait 3:4', Math.abs(s.ratio - 3 / 4) < 1e-4 && /^3:4/.test(await optText()), `${s.ratio} ${await optText()}`);
+  await pg.setInputFiles('#track-file', gpxOf(wide)); await pg.waitForTimeout(200); s = await st();
+  check('wide route + portrait -> back to landscape 4:3', Math.abs(s.ratio - 4 / 3) < 1e-4 && /^4:3/.test(await optText()), `${s.ratio} ${await optText()}`);
+  await pg.selectOption('#aspect-select', 'custom'); await pg.fill('#aspect-w', '2'); await pg.fill('#aspect-h', '3'); await pg.press('#aspect-h', 'Tab');
+  await pg.setInputFiles('#track-file', gpxOf(wide)); await pg.waitForTimeout(200); s = await st();
+  check('wide route + custom 2:3 swaps to 3:2', (await pg.inputValue('#aspect-w')) === '3' && (await pg.inputValue('#aspect-h')) === '2' && Math.abs(s.ratio - 1.5) < 1e-4, `${s.ratio}`);
+  await pg.selectOption('#aspect-select', 'free'); await pg.setInputFiles('#track-file', gpxOf(tall)); await pg.waitForTimeout(200);
+  check('free ratio is left alone', (await pg.inputValue('#aspect-select')) === 'free');
+  await pg.selectOption('#aspect-select', '1:1'); await pg.setInputFiles('#track-file', gpxOf(tall)); await pg.waitForTimeout(200); s = await st();
+  check('square stays square', Math.abs(s.ratio - 1) < 1e-4);
+
 
   // 9. resize from centre with a held modifier
   await pg.click('#clear-btn'); await pg.selectOption('#aspect-select', 'free');

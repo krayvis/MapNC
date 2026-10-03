@@ -6,24 +6,29 @@ Things we may do, not things we are doing. Move an item to **Next** when it is a
 
 Soon, in rough priority order.
 
-- **Lake flatten in the heightmap.** Optional: pool lakes to a flat level using the OSM lake outlines (the outlines already export as vectors). Decided: flat water only, no carved depth. Level per lake = median of the DEM inside its outline (lakes in one region differ by hundreds of metres, so never a global level); skip lakes whose DEM is already flat. Case study (Sierra Buttes sample, 3DEP): the big lakes are already hydro-flattened (SD 0.00 m), only small ponds and wet meadows are noisy (0.3 to 0.7 m), so the gain is small on 3DEP. Terrarium measured on the same lakes (z13, ~15 m/px): the big lakes are nearly flat there too (SD 0.04 to 0.15 m, 20 to 12 ha), and sit about 6 to 7 m above 3DEP (different datum/vintage). Small ponds and meadows are noisier (SD 1.3 to 2.9 m, up to 13 m range), though those blobs were picked from 3DEP so they include shore pixels. Verdict: low priority; the visible gain is small ponds only. Worth doing only if it comes cheap after other work.
+- **Ocean: flat sea level, then bathymetry.** Planned in PLAN.md ("Ocean plan"). Flat sea with a flood fill from the border, a sea band in the grey mapping, a NOAA bathymetry merge for 3DEP regions, then 3D and contour touches. The "Raise everything below" option already gives a plain flat sea at a chosen level; the flood fill is the careful version that spares land below sea level. Waiting on the owner's answers to the open questions in the plan.
+- **Scale bar and map markers in the extra toppings (step 6).** Vector layers on the same pixel frame as the route: a scale bar (a round length, with end ticks and a label), a north arrow, and markers for GPX waypoints (summits, camps; MapNC reads none today) and for named points the user adds. Lat/lon ticks along the edge are a possible extra.
 
 ## Later
 
+- **Tiling beyond the grid: per-tile detail.** Tiling (built) cuts tiles from one grid, so it cannot add pixels. A carve whose stepover needs more pixels than the size cap allows would need each tile fetched or resampled on its own at the pixel size required, with the fixes, lakes, border offset and a shared elevation window applied per tile, and a check that neighbouring tiles agree in the overlap. Only worth it where the source really has the detail (1 to 3 m lidar), since a 10 m source just gets smoother. Also not tiled yet: the SVG route export, the STL, the layered map, and a registration mark scheme beyond the overlap (the DXF tiles already carry corner marks).
+- **Canada: fill the lidar gaps from a national model.** The NRCan source only covers where lidar exists, so Auto falls back to Terrarium (~30 m) when coverage is poor. A better answer would be a merge: HRDEM where it has data, the 30 m national model (MRDEM-30, a cloud-optimised GeoTIFF on public S3, in Canada Lambert so it needs reprojection) elsewhere, with a check for a step at the seam (vertical datums differ). Also the coverage outline for Auto is rough (see geo.js), and the resolution is an assumed 10 m; a cheap probe of the service's own metadata might replace both.
+
 Worth doing, no date.
 
-- **Test the exports in real CAM.** DXF, SVG and the route PNG have not been imported into Vectric VCarve or Carbide Create. Do that before promising anything about them. The border and corner-mark scaling workflow in particular is untried.
-- **Make the heightmap export streaming.** The route PNG already streams in bands; the main heightmap does not, which caps very large sizes.
-- **Mobile / touch pass.** Selection handles, the point editor and the collapsible sidebar have only been checked with mouse input.
-- **Verify very large 3DEP requests.** A 12-chunk 7000 px fetch still failed in the sandbox (proxy drops). Try it from a normal network.
+- **Downsample the heightmap preview for huge grids.** The export now streams, but the preview canvas is still full size: at the 16384 px cap that is a 1 GB `ImageData` plus the canvas, on top of the Float32 elevation (1 GB) and the grey array (0.5 GB). A preview capped near 4096 px would lift the real memory limit. The hover readout, route guide and 3D view all use grid coordinates, so each needs the scale. Tiling would reduce the pressure but not remove it.
+- **Check lake flattening against real OpenStreetMap data.** It is tested with mocked Overpass responses only (the live service answered 429 when tried). Try the Sierra Buttes sample and a lake with an island (a relation with an inner ring).
+- **Import-settings readout for Carbide Create.** Given a relief height in mm, print what to enter in the import dialog (depth and XY scale) and the metres per grey level.
+- **Tool-reach advisory.** Enter the bit's flute length and the stock thickness; warn when the relief is deeper than the bit can cut.
+- **Edge border in the 3D view.** The border is baked into the heightmap and the STL; the 3D view draws the real terrain without it.
 
 ## Ideas
-
 
 Unsorted, unevaluated.
 
 - Georeferencing sidecar (world file or JSON with bounds and Z range) so the heightmap can be placed back on a map.
-- Cross-section / profile view along the route.
-- Sea-level clamp (flatten below 0 m so water is a flat pool). For islands, consider optional bathymetry depth (carve the sea below the waterline), which is wanted for the ocean even though lakes stay flat.
 - Read the heightmapper and unrealheightmap projects for ideas and pitfalls.
 - **Spline polish.** The spline fit is built (step 2). Possible follow-ups: show the control points' polyline faintly under the curve, a smoothing-spline mode that does not pass through noisy points exactly.
+- A mirrored "mold mode" for casting or vacuum forming.
+- GPX trim, split, merge and reverse.
+- A fill limit for gaps that the user can set (today: gaps up to 2% of the grid are filled, bigger ones are left).

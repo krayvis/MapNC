@@ -29,7 +29,7 @@ check('interval must be positive', (() => { try { C.contourLines(data, W, H, 0);
 check('niceInterval', C.niceInterval(300, 15) === 20 && C.niceInterval(1000, 15) === 100 && C.niceInterval(40, 15) === 5 && C.niceInterval(2, 15) === 0.5, [C.niceInterval(300, 15), C.niceInterval(1000, 15), C.niceInterval(40, 15), C.niceInterval(2, 15)].join());
 // Vector output: layers in SVG and DXF, with and without a route.
 const layers = [{ name: 'contours', color: '#8b5e34', aci: 30, width: 0.5, lines: lv(5).lines }, { name: 'contours_index', color: '#5a3a1a', aci: 32, width: 1, lines: lv(5).lines.slice(0, 1) }];
-const svg = V.toSvg(null, null, W, H, { mmPerPx: 0.5, layers, border: true }), dxf = V.toDxf(null, null, W, H, { mmPerPx: 0.5, layers, border: true });
+const svg = V.toSvg(null, null, W, H, { mmPerPx: 0.5, layers, marks: true }), dxf = V.toDxf(null, null, W, H, { mmPerPx: 0.5, layers, marks: true });
 check('SVG has contour groups and no route', /<g id="contours"/.test(svg) && /<g id="contours_index"/.test(svg) && !/id="route"/.test(svg));
 check('DXF has contour layers and no ROUTE layer', /\nCONTOURS\n/.test(dxf) && /\nCONTOURS_INDEX\n/.test(dxf) && !/\nROUTE\n/.test(dxf));
 check('DXF layer count is right', /\nLAYER\n70\n3\n/.test(dxf), dxf.match(/LAYER\n70\n\d+/)[0].replace(/\n/g, ' '));

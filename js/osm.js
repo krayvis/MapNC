@@ -77,18 +77,26 @@
     return out;
   }
 
-  /** Overpass `out geom` JSON -> [{ kind, name, pts: [{lat, lon}] }]. Elements of other kinds are dropped. */
+  /**
+   * Overpass `out geom` JSON -> [{ kind, name, id, water, role, pts: [{lat, lon}] }]. Elements of other kinds are dropped.
+   * id is the OSM element id (rings of one relation share it), water is the water=* tag, role is 'outer' or 'inner'
+   * (inner rings are islands); the lake flattening uses these.
+   */
   function parse(json) {
     const out = [];
+    const pts = (g) => g.map((q) => ({ lat: q.lat, lon: q.lon }));
     for (const el of (json && json.elements) || []) {
       const kind = classify(el.tags);
       if (!kind) continue;
+      const meta = { kind, name: el.tags.name || '', id: el.id != null ? el.type + el.id : undefined, water: el.tags.water || '' };
       if (el.type === 'way' && el.geometry && el.geometry.length >= 2) {
-        out.push({ kind, name: el.tags.name || '', pts: el.geometry.map((g) => ({ lat: g.lat, lon: g.lon })) });
+        out.push(Object.assign({ role: 'outer', pts: pts(el.geometry) }, meta));
       } else if (el.type === 'relation' && el.members) {
-        const parts = el.members.filter((m) => m.type === 'way' && m.geometry && m.geometry.length >= 2)
-          .map((m) => m.geometry.map((g) => ({ lat: g.lat, lon: g.lon })));
-        for (const ring of stitch(parts)) out.push({ kind, name: el.tags.name || '', pts: ring });
+        for (const role of ['outer', 'inner']) {
+          const parts = el.members.filter((m) => m.type === 'way' && m.geometry && m.geometry.length >= 2 && (m.role === 'inner') === (role === 'inner'))
+            .map((m) => pts(m.geometry));
+          for (const ring of stitch(parts)) out.push(Object.assign({ role, pts: ring }, meta));
+        }
       }
     }
     return out;

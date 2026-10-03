@@ -1,7 +1,7 @@
 /* MapNC phase 1: map, rectangle selection, source auto-detect readout. */
 (function () {
   'use strict';
-  const Geo = window.MapNCGeo;
+  const Geo = window.MapNCGeo, Tiles = window.MapNCTiles, Zip = window.MapNCZip;
 
   const $ = (id) => document.getElementById(id);
   const mapEl = $('map');
@@ -332,7 +332,35 @@
     const v = parseFloat($('carve-size').value);
     return v > 0 ? v * ($('carve-unit').value === 'in' ? 25.4 : 1) : null;
   }
-  ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', refresh));
+  ['carve-size', 'carve-unit', 'piece-size', 'tile-overlap'].forEach((id) => $(id).addEventListener('input', refresh));
+
+  // ---- tiling: the suggestion in step 4 and the plan the tile export uses ------------------------
+
+  const unitMm = () => ($('carve-unit').value === 'in' ? 25.4 : 1);
+  const fmtLen = (mm) => ($('carve-unit').value === 'in' ? (mm / 25.4).toFixed(2) + ' in' : mm.toFixed(mm < 100 ? 1 : 0) + ' mm');
+  const TILE_HINT = $('tile-note').textContent;
+
+  /** How to cut a W x H pixel grid into tiles for the carve size, largest piece and overlap entered. */
+  function tilePlan(W, H) {
+    const mm = carveLongMm(), piece = parseFloat($('piece-size').value), ov = parseFloat($('tile-overlap').value);
+    return Tiles.planTiles({ W, H, mmPerPx: mm ? mm / Math.max(W, H) : 0, maxPieceMm: piece > 0 ? piece * unitMm() : 0, overlapMm: ov > 0 ? ov * unitMm() : 0 });
+  }
+
+  /** The tiling advice under Output size. */
+  function updateTileNote(W, H) {
+    const note = $('tile-note'), piece = parseFloat($('piece-size').value);
+    document.querySelectorAll('.carve-unit-name').forEach((s) => { s.textContent = $('carve-unit').value; });
+    let text = TILE_HINT, warn = false;
+    if (piece > 0 && !carveLongMm()) { text = 'Enter the carve size above to see how it tiles.'; warn = true; }
+    else if (piece > 0) {
+      const tp = tilePlan(W, H), k = tp.carveWmm / W;
+      if (tp.error) { text = tp.error; warn = true; }
+      else if (!tp.needed) text = 'The whole carve (' + fmtLen(tp.carveWmm) + ' × ' + fmtLen(tp.carveHmm) + ') fits in one piece, so no tiling is needed.';
+      else text = 'Tiling suggested: the carve is ' + fmtLen(tp.carveWmm) + ' × ' + fmtLen(tp.carveHmm) + ', more than the ' + fmtLen(piece * unitMm()) + ' you can cut at once. Cut it as ' + tp.cols + ' × ' + tp.rows + ' tiles (' + tp.count + ') of ' + fmtLen(tp.tileWmm) + ' × ' + fmtLen(tp.tileHmm) + ' (' + tp.tileW + ' × ' + tp.tileH + ' px, ' + k.toFixed(2) + ' mm per pixel), overlapping by at least ' + fmtLen(tp.minOverlapPx * k) + '. Step 5 exports the tiles.';
+    }
+    note.textContent = text;
+    note.classList.toggle('warning', warn);
+  }
 
   const fmtM = (m) => (m >= 100 ? m.toFixed(0) : m >= 10 ? m.toFixed(1) : m.toFixed(2)) + ' m';
 
@@ -341,16 +369,15 @@
   const fmtKm = (m) => (m >= 1000 ? (m / 1000).toFixed(2) + ' km' : m.toFixed(0) + ' m');
   const fmtDeg = (ll) => Math.abs(ll.lat).toFixed(4) + (ll.lat < 0 ? 'S ' : 'N ') + Math.abs(ll.lng).toFixed(4) + (ll.lng < 0 ? 'W' : 'E');
 
-  /** Is this pixel size enough for the carve? Judged against the finishing stepover (0.25 mm if none is given), and
-   *  against the source data's own spacing, which sets the real detail however many pixels there are. */
+  /** Is this pixel size enough for the carve? Judged against a typical 0.25 mm finishing stepover. The source data's own
+   *  spacing is covered by the Output size note, so it is not repeated here. Only "too coarse" is worth a warning style. */
+  const TYPICAL_STEPOVER_MM = 0.25;
   function resolutionAdvice(a) {
-    const step = a.stepMm > 0 ? a.stepMm : 0.25, given = a.stepMm > 0;
+    const step = TYPICAL_STEPOVER_MM;
     const needPx = Math.ceil(a.carveMm / step);
-    const stepTxt = step + ' mm' + (given ? '' : ' (typical; enter yours above)');
-    if (a.mmPx > step * 1.5) return { level: 'warn', text: 'Too coarse: pixels are ' + a.mmPx.toFixed(2) + ' mm on the carve, wider than a ' + stepTxt + ' stepover, so the toolpath will follow visible steps. Use about ' + needPx + ' px on the long side or more.' };
-    if (a.srcMm > step * 2) return { level: 'note', text: 'Pixel size is fine, but the elevation data itself is only sampled every ' + a.srcMm.toFixed(2) + ' mm on the carve, coarser than a ' + stepTxt + ' stepover. The extra pixels give a smooth surface, not extra detail. A smaller region or a higher-resolution source is the only way to add real detail.' };
-    if (a.mmPx < step / 4 && a.longPx > needPx * 2) return { level: 'note', text: 'More than needed: ' + a.mmPx.toFixed(3) + ' mm per pixel is far finer than a ' + stepTxt + ' stepover. About ' + needPx + ' px on the long side would do the same job with a smaller file.' };
-    return { level: 'ok', text: 'Resolution is sufficient: ' + a.mmPx.toFixed(2) + ' mm per pixel against a ' + stepTxt + ' stepover.' };
+    if (a.mmPx > step * 1.5) return { level: 'warn', text: 'Too coarse for a typical ' + step + ' mm stepover: pixels are ' + a.mmPx.toFixed(2) + ' mm on the carve, so the toolpath will follow visible steps. Use about ' + needPx + ' px on the long side or more.' + (needPx > a.capPx ? ' That is over the ' + a.capPx + ' px cap: raise it under Advanced, or carve a smaller area (tiles are cut from this one grid, so they do not add pixels).' : '') };
+    if (a.mmPx < step / 4 && a.longPx > needPx * 2) return { level: 'note', text: 'More than needed: ' + a.mmPx.toFixed(3) + ' mm per pixel is far finer than a typical ' + step + ' mm stepover. About ' + needPx + ' px on the long side would do the same job with a smaller file.' };
+    return { level: 'ok', text: 'Resolution is sufficient: ' + a.mmPx.toFixed(2) + ' mm per pixel against a typical ' + step + ' mm stepover.' };
   }
 
   function refresh() {
@@ -364,20 +391,21 @@
     $('info-size').textContent = fmtKm(g.widthM) + ' × ' + fmtKm(g.heightM);
     $('info-corners').textContent = fmtDeg({ lat: bounds.north, lng: bounds.west }) + ' to ' + fmtDeg({ lat: bounds.south, lng: bounds.east });
     $('info-grid').textContent = plan.tooLarge ? '–' : plan.grid.width + ' × ' + plan.grid.height + ' px';
-    $('info-source').textContent = plan.label + (plan.id === '3dep' && !plan.region ? ' (outside US coverage)' : '');
+    $('info-source').textContent = plan.label + (plan.id === '3dep' && !plan.region ? ' (outside US coverage)' : plan.id === 'canada' && !plan.region ? ' (may extend outside Canada)' : '');
     $('info-res').textContent = plan.resolutionNote;
     $('out-info').hidden = !!plan.tooLarge;
     updateRouteExportInfo();
     if (!plan.tooLarge) {
       const f = plan.resolutionM / plan.outputResM;
       $('out-px').textContent = fmtM(plan.outputResM) + ' per pixel' + (f > 1.05 ? ' (' + f.toFixed(1) + '× finer than source)' : f < 0.95 ? ' (coarser than source)' : ' (source resolution)');
+      updateTileNote(plan.grid.width, plan.grid.height);
       const mm = carveLongMm();
       if (mm) {
         const mmPx = mm / Math.max(plan.grid.width, plan.grid.height);
         $('out-carve').textContent = mmPx.toFixed(3) + ' mm per pixel (' + (25.4 / mmPx).toFixed(0) + ' px/in)';
         const longM = Math.max(g.widthM, g.heightM);
-        const adv = resolutionAdvice({ carveMm: mm, mmPx, srcMm: mm * plan.resolutionM / longM, longPx: Math.max(plan.grid.width, plan.grid.height), stepMm: parseFloat($('stepover').value) });
-        $('out-advice').textContent = adv.text; $('out-advice').className = 'hint ' + (adv.level === 'ok' ? '' : 'warning'); $('out-advice').hidden = false;
+        const adv = resolutionAdvice({ carveMm: mm, mmPx, longPx: Math.max(plan.grid.width, plan.grid.height), capPx: Geo.LIMITS.maxSide });
+        $('out-advice').textContent = adv.text; $('out-advice').className = 'hint ' + (adv.level === 'warn' ? 'warning' : ''); $('out-advice').hidden = false;
       } else {
         $('out-carve').textContent = 'enter a carve size above';
         $('out-advice').hidden = true;
@@ -413,9 +441,24 @@
 
   /** The route as drawn and exported: the points themselves, or a spline fitted through them when that is switched on. */
   const SPLINE_TOL_M = 0.25;   // how far the straight pieces approximating the curve may stray from it
+  let splineSteps = [], splineStepsFor = null;   // smoothing choices (metres), sized from `track`'s point spacing
+  function syncSplineUi() {
+    if (track !== splineStepsFor) {
+      splineStepsFor = track;
+      splineSteps = track ? Track.smoothingSteps(track) : [];
+      const r = $('spline-smooth');
+      r.max = splineSteps.length;
+      r.value = Math.min(+r.value, splineSteps.length);
+      r.disabled = !splineSteps.length;
+    }
+    const lvl = +$('spline-smooth').value;
+    $('spline-smooth-out').textContent = lvl ? splineSteps[lvl - 1] + ' m' : 'None';
+  }
+  const splineSigma = () => splineSteps[+$('spline-smooth').value - 1] || 0;
   function shown() {
     if (!track || !$('spline-on').checked) return track;
-    try { return Track.splineTrack(track, SPLINE_TOL_M); } catch (e) { return track; }
+    syncSplineUi();
+    try { return Track.splineTrack(track, SPLINE_TOL_M, splineSigma()); } catch (e) { return track; }
   }
 
   function trackError(msg) { $('track-error').textContent = msg; $('track-error').hidden = !msg; }
@@ -501,11 +544,24 @@
     updateRouteExportInfo();
   }
   $('spline-on').addEventListener('change', splineChanged);
+  $('spline-smooth').addEventListener('input', () => { syncSplineUi(); splineChanged(); });
   $('clean-reset').addEventListener('click', () => { setCleanInputs(0, 0); applyClean(); });
 
-  function fitToTrack() {
+  /** A freshly loaded route picks the orientation that suits its shape: a tall route gets the portrait layout, a wide
+   *  one landscape. Only a fixed, non-square ratio is turned (Free has no orientation, a square has no other one). */
+  function orientToTrack(b) {
+    if (!ratio || ratio === 1) return;
+    const wantPortrait = Geo.groundRatio(b) < 1;
+    if (wantPortrait === (ratio < 1)) return;
+    if ($('aspect-select').value === 'custom') setCustom($('aspect-h').value, $('aspect-w').value);
+    else { portrait = wantPortrait; relabelAspect(); }
+    ratio = readRatio();
+  }
+
+  function fitToTrack(autoOrient) {
     const margin = Math.max(0, parseFloat($('track-margin').value) || 0) / 100;
     let b = Track.padBounds(Track.trackBounds(track), margin);
+    if (autoOrient) orientToTrack(b);
     if (ratio) b = Geo.reshapeBounds(b, ratio, 'outside');   // grow to the ratio so the route stays inside
     setBounds(b);
     map.fitBounds([[b.south, b.west], [b.north, b.east]], { padding: [30, 30] });
@@ -531,7 +587,7 @@
     widthTouched = false;
     showTrack();
     applyClean();
-    fitToTrack();
+    fitToTrack(true);
   }
 
   $('track-load').addEventListener('click', () => $('track-file').click());
@@ -647,7 +703,90 @@
   });
   $('hm-canvas').addEventListener('pointerleave', () => { $('hm-readout').hidden = true; });
 
+  function showElevationStats() {
+    const e = elevation;
+    $('res-range').textContent = e.min.toFixed(1) + ' to ' + e.max.toFixed(1) + ' m (' + (e.max - e.min).toFixed(1) + ' m range)';
+    $('res-nodata').textContent = e.nodata ? (100 * e.nodata / e.data.length).toFixed(1) + '% (magenta in preview)' : 'none';
+  }
+
+  // ---- elevation fixes: fill gaps, flatten lakes, raise a floor ----
+  // They edit elevation.data in place and keep undo patches, so unticking restores the original samples without a
+  // refetch. Any change undoes all of them and applies the ticked ones again in a fixed order (gaps, lakes, floor), so
+  // the result never depends on the order the boxes were ticked. The lake outlines come from OpenStreetMap (cached by osm.js).
+  const Lakes = window.MapNCLakes, Fixes = window.MapNCFixes;
+  let editState = null;                 // { elevation, patches } while the loaded data carries edits
+  let editToken = 0;
+  const note = (id, text, bad) => { $(id).textContent = text; $(id).classList.toggle('warning', !!bad); };
+  const HINTS = { 'lake-note': $('lake-note').textContent, 'gap-note': $('gap-note').textContent, 'floor-note': $('floor-note').textContent };
+
+  const edits = () => (editState && editState.elevation === elevation ? editState.info : {});
+
+  function elevationChanged() {
+    const e = elevation, s = window.MapNCSources.stats(e.data);
+    e.min = s.min; e.max = s.max; e.nodata = s.nodata;
+    contourDefault();
+    showElevationStats();
+    recompute();
+  }
+
+  function lakeSummary(s) {
+    const parts = [s.flattened + ' flattened'];
+    if (s.flat) parts.push(s.flat + ' already flat');
+    if (s.incomplete) parts.push(s.incomplete + ' skipped (outline incomplete)');
+    if (s.tiny) parts.push(s.tiny + ' too small');
+    return s.found ? parts.join(', ') + '.' : 'No lakes found in this region.';
+  }
+
+  function gapSummary(s) {
+    const parts = [];
+    if (s.filled) parts.push('Filled ' + s.filled.toLocaleString() + ' pixels in ' + s.gaps + (s.gaps === 1 ? ' gap' : ' gaps'));
+    if (s.left) parts.push((s.filled ? 'left ' : 'Left ') + s.leftPixels.toLocaleString() + ' pixels in ' + s.left + ' large ' + (s.left === 1 ? 'area' : 'areas') + ' (too big to guess)');
+    return parts.length ? parts.join(', ') + '.' : 'No gaps found.';
+  }
+
+  async function syncEdits() {
+    const token = ++editToken, e = elevation;
+    if (!e) return;
+    const hadEdits = !!(editState && editState.elevation === e && editState.patches.length);
+    if (hadEdits) Lakes.revert(e.data, editState.patches);
+    const state = editState = { elevation: e, patches: [], info: {} };
+    let changed = hadEdits;
+    const apply = (res) => { state.patches.push(...res.patches); if (res.patches.length) changed = true; return res.summary; };
+
+    if ($('fill-gaps').checked) note('gap-note', gapSummary(state.info.gaps = apply(Fixes.fillGaps(e.data, e.width, e.height))));
+    else note('gap-note', HINTS['gap-note']);
+
+    if ($('flatten-lakes').checked) {
+      const gs = Geo.groundSize(e.bounds), problem = OSM.areaProblem(Math.max(gs.widthM, gs.heightM), ['lakes']);
+      if (problem) note('lake-note', problem, true);
+      else {
+        note('lake-note', 'Looking up lakes…');
+        try {
+          const feats = await OSM.fetchFeatures(e.bounds, ['lakes']);
+          if (token !== editToken || elevation !== e) return;
+          note('lake-note', lakeSummary(state.info.lakes = apply(Lakes.flatten(e.data, e.width, e.height, Lakes.groupLakes(feats, e.bounds, e.width, e.height)))));
+        } catch (err) {
+          if (token !== editToken || elevation !== e) return;
+          note('lake-note', err.message, true);
+        }
+      }
+    } else note('lake-note', HINTS['lake-note']);
+
+    const level = parseFloat($('floor-level').value);
+    if ($('raise-floor').checked && !Number.isFinite(level)) note('floor-note', 'Enter a level in metres.', true);
+    else if ($('raise-floor').checked) {
+      const sum = apply(Fixes.raiseFloor(e.data, level)), n = sum.raised;
+      state.info.floor = level;
+      note('floor-note', n ? n.toLocaleString() + ' pixels (' + (100 * n / e.data.length).toFixed(1) + '%) raised to ' + level + ' m.' : 'Nothing is below ' + level + ' m.', n === sum.finite);
+    } else note('floor-note', HINTS['floor-note']);
+
+    if (changed) elevationChanged();
+  }
+  for (const id of ['fill-gaps', 'flatten-lakes', 'raise-floor', 'floor-level']) $(id).addEventListener('change', syncEdits);
+
   function resetResult() {
+    editState = null;
+    editToken++;
     elevation = null;
     grey = null;
     $('result-info').hidden = true;
@@ -672,7 +811,7 @@
   const currentPlan = () => Geo.planSource(bounds, $('source-select').value, resSpec());
 
   function sizeNote(plan) {
-    const mb = plan.id === '3dep' ? plan.grid.width * plan.grid.height * 4 / 1048576 : (plan.tiles ? plan.tiles.count * 0.1 : 0);
+    const mb = plan.id !== 'terrarium' ? plan.grid.width * plan.grid.height * 4 / 1048576 : (plan.tiles ? plan.tiles.count * 0.1 : 0);
     return plan.grid.width + ' × ' + plan.grid.height + ' px' + (mb ? ', a download of up to ~' + Math.max(1, Math.round(mb)) + ' MB' : '');
   }
 
@@ -723,11 +862,11 @@
       elevation = e;
       contourDefault();
       setStatus(e.sourceLabel + ' · ' + e.width + ' × ' + e.height + ' px' + (e.note ? ' — ' + e.note : ''));
-      $('res-range').textContent = e.min.toFixed(1) + ' to ' + e.max.toFixed(1) + ' m (' + (e.max - e.min).toFixed(1) + ' m range)';
-      $('res-nodata').textContent = e.nodata ? (100 * e.nodata / e.data.length).toFixed(1) + '% (magenta in preview)' : 'none';
+      showElevationStats();
       $('result-info').hidden = false;
       showHeightmap(true);
       recompute();
+      if (['fill-gaps', 'flatten-lakes', 'raise-floor'].some((id) => $(id).checked)) syncEdits();
     } catch (err) {
       if (controller !== mine) return;
       controller = null;
@@ -765,8 +904,30 @@
       curve: { kind: $('curve-kind').value, strength: parseFloat($('curve-strength').value) },
       bits: Number($('bits-select').value),
       invert: $('invert').checked,
+      border: borderParams(),
     };
   }
+
+  /** The edge border for toGrey, or null when off or the carve size (needed for millimetres) is unknown. */
+  function borderParams() {
+    const style = $('border-style').value, mm = parseFloat($('border-width').value), longMm = carveLongMm();
+    const on = style !== 'none';
+    $('border-width-wrap').hidden = $('border-toward-wrap').hidden = !on;
+    const bad = on && (!longMm ? 'Set the carve size in step 4 to give the border a width in millimetres.' : !(mm > 0) ? 'Enter a border width in millimetres.' : '');
+    const note = $('border-note');
+    note.classList.toggle('warning', !!bad);
+    if (bad) note.textContent = bad;
+    else if (on) {
+      const px = elevation ? mm / longMm * Math.max(elevation.width, elevation.height) : 0;
+      note.textContent = 'About ' + Math.round(px) + ' pixels wide on the heightmap' + (elevation && px >= Math.min(elevation.width, elevation.height) / 2 ? ' (limited to half the short side).' : '.');
+    } else note.textContent = BORDER_HINT;
+    if (bad || !on || !elevation) return null;
+    return { style, widthPx: mm / longMm * Math.max(elevation.width, elevation.height), toward: $('border-toward').value, widthMm: mm, width: elevation.width, height: elevation.height };
+  }
+  const BORDER_HINT = $('border-note').textContent;
+  $('border-style').addEventListener('change', () => { $('border-toward').value = $('border-style').value === 'rim' ? 'high' : 'low'; borderParams(); recompute(); });
+  ['border-width', 'border-toward'].forEach((id) => $(id).addEventListener('input', () => { borderParams(); recompute(); }));
+  ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', () => { if ($('border-style').value !== 'none' && elevation && grey) recompute(); }));
 
   // ---- route rasterizing -------------------------------------------------------------------
 
@@ -852,27 +1013,121 @@
       elevation.width + 'x' + elevation.height + '_' + grey.bits + 'bit.png';
   }
 
+  /** The PNG text chunks that describe the heightmap; `bounds` defaults to the whole region (a tile passes its own). */
+  function heightmapText(bounds) {
+    const b = bounds || elevation.bounds;
+    return {
+      Software: 'MapNC',
+      Source: elevation.sourceLabel,
+      Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','),
+      ElevationWindowM: grey.lo.toFixed(3) + ',' + grey.hi.toFixed(3),
+      Exaggeration: String(grey.k),
+      MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5) + (grey.curve ? ' (average)' : ''),
+      HeightCurve: grey.curve ? grey.curve.kind + ' ' + grey.curve.strength : 'linear',
+      Inverted: String($('invert').checked),
+      EdgeBorder: grey.border ? grey.border.style + ' ' + grey.border.widthMm + ' mm, toward ' + grey.border.toward : 'none',
+      LakesFlattened: String(edits().lakes ? edits().lakes.flattened : 0),
+      GapsFilled: String(edits().gaps ? edits().gaps.filled : 0),
+      FloorRaisedTo: edits().floor != null ? edits().floor + ' m' : 'none',
+    };
+  }
+
   $('export-btn').addEventListener('click', async () => {
     if (!elevation || !grey) return;
     $('export-btn').disabled = true;
     $('export-status').textContent = 'Encoding…';
     try {
-      const b = elevation.bounds;
-      const blob = await HM.encodePng(elevation.width, elevation.height, grey.bits, grey.data, {
-        Software: 'MapNC',
-        Source: elevation.sourceLabel,
-        Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','),
-        ElevationWindowM: grey.lo.toFixed(3) + ',' + grey.hi.toFixed(3),
-        Exaggeration: String(grey.k),
-        MetresPerGreyLevel: grey.metresPerLevel.toPrecision(5) + (grey.curve ? ' (average)' : ''),
-        HeightCurve: grey.curve ? grey.curve.kind + ' ' + grey.curve.strength : 'linear',
-        Inverted: String($('invert').checked),
-      }, 1, pixelsPerMetre());
+      const blob = await HM.encodeGreyStream(elevation.width, elevation.height, grey.bits, grey.data, { pixelsPerMetre: pixelsPerMetre(), onProgress: (f) => { $('export-status').textContent = 'Encoding… ' + Math.round(f * 100) + '%'; }, text: heightmapText() });
       $('export-status').textContent = 'Saved ' + saveBlob(blob, exportFilename()) + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).';
     } catch (err) {
       $('export-status').textContent = 'Export failed: ' + err.message;
     } finally {
       $('export-btn').disabled = false;
+    }
+  });
+
+  // ---- tile export (one PNG per tile, in a ZIP) --------------------------------------------------
+  // Tiles are windows of the finished grid, so they share its pixel size, elevation window and edge border (which
+  // lands on the outer edges only). Each tile's PNG records its place; tiles.txt lists where each one goes.
+
+  function updateTileUi() {
+    const tp = elevation ? tilePlan(elevation.width, elevation.height) : null;
+    $('tile-export').hidden = !(tp && tp.needed);
+    if (!tp || !tp.needed) return;
+    const k = tp.carveWmm / elevation.width;
+    $('tile-route-wrap').hidden = !track;
+    $('tile-vectors-wrap').hidden = !(track || ($('vec-contours').checked && !$('vec-contours').disabled) || osmKinds().length);
+    $('tile-export-info').textContent = tp.cols + ' × ' + tp.rows + ' tiles of ' + tp.tileW + ' × ' + tp.tileH + ' px (' + fmtLen(tp.tileWmm) + ' × ' + fmtLen(tp.tileHmm) + '), overlapping by at least ' + fmtLen(tp.minOverlapPx * k) + '. All share one elevation window, so the heights match across seams. The ZIP also holds tiles.txt with where each tile goes.';
+  }
+  ['carve-size', 'carve-unit', 'piece-size', 'tile-overlap'].forEach((id) => $(id).addEventListener('input', updateTileUi));
+  $('vec-contours').addEventListener('change', updateTileUi);
+
+  function tilesLayoutText(tp, base, bits) {
+    const k = tp.carveWmm / elevation.width, b = elevation.bounds, mm = (v) => (v * k).toFixed(2).padStart(9);
+    const rows = tp.tiles.map((t) => t.name.padEnd(6) + String(t.col).padStart(4) + String(t.row).padStart(4) + mm(t.x0) + mm(t.y0) + mm(t.x0 + t.w) + mm(t.y0 + t.h));
+    return [
+      'MapNC tiles for ' + base,
+      '',
+      'Region (south, west, north, east): ' + [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(', '),
+      'Whole carve: ' + tp.carveWmm.toFixed(2) + ' x ' + tp.carveHmm.toFixed(2) + ' mm (' + elevation.width + ' x ' + elevation.height + ' px, ' + k.toFixed(4) + ' mm per pixel)',
+      'Tiles: ' + tp.cols + ' columns x ' + tp.rows + ' rows, each ' + tp.tileW + ' x ' + tp.tileH + ' px (' + tp.tileWmm.toFixed(2) + ' x ' + tp.tileHmm.toFixed(2) + ' mm), ' + bits + '-bit',
+      'Overlap between neighbours: at least ' + (tp.minOverlapPx * k).toFixed(2) + ' mm (' + tp.minOverlapPx + ' px)',
+      'Elevation window shared by every tile: ' + grey.lo.toFixed(3) + ' to ' + grey.hi.toFixed(3) + ' m, ' + grey.metresPerLevel.toPrecision(5) + ' m per grey level' + (grey.curve ? ' (average; a height curve is on)' : ''),
+      grey.border ? 'Edge border (' + grey.border.style + ', ' + grey.border.widthMm + ' mm) is on the outer edges of the whole carve only.' : 'No edge border.',
+      '',
+      'Where each tile goes, in mm from the top-left (north-west) corner of the whole carve. Rows count from the top, columns from the left.',
+      'tile  col row     left      top    right   bottom',
+      ...rows,
+      '',
+      'Import every tile at the same relief depth, so a given grey level is the same height on every piece. Where two tiles overlap they hold the same terrain, so the shared strip lines up when the pieces are placed at these offsets.',
+      '',
+    ].join('\n');
+  }
+
+  let tilesBusy = false;
+  $('export-tiles-btn').addEventListener('click', async () => {
+    if (!elevation || !grey || tilesBusy) return;
+    const tp = tilePlan(elevation.width, elevation.height);
+    if (!tp.needed) return;
+    const btn = $('export-tiles-btn'), say = (t) => { $('tile-export-status').textContent = t; };
+    tilesBusy = true; btn.disabled = true;
+    try {
+      const W = elevation.width, H = elevation.height, grid = exportGrid(), base = exportBaseName(grid), k = tp.carveWmm / W;
+      const gs = Geo.groundSize(elevation.bounds), pm = Math.max(gs.widthM, gs.heightM) / Math.max(W, H);
+      const withRoute = !!track && $('tile-route').checked, entries = [];
+      let vc = null, vecNote = '';
+      if (!$('tile-vectors-wrap').hidden && $('tile-vectors').checked) {
+        vc = await vectorContent(grid, say);
+        if (vc.stop) { vecNote = ' No vector files: ' + vc.stop; vc = null; }
+      }
+      for (let i = 0; i < tp.tiles.length; i++) {
+        const t = tp.tiles[i], tb = Tiles.tileBounds(elevation.bounds, W, H, t), where = ' (tile ' + (i + 1) + ' of ' + tp.count + ')';
+        say('Encoding ' + t.name + where + '…');
+        const text = Object.assign(heightmapText(tb), {
+          Tile: t.name + ' of ' + tp.cols + 'x' + tp.rows,
+          TileOffsetMm: (t.x0 * k).toFixed(3) + ',' + (t.y0 * k).toFixed(3),
+          TileOverlapMm: (tp.minOverlapPx * k).toFixed(3),
+          WholeBounds: [elevation.bounds.south, elevation.bounds.west, elevation.bounds.north, elevation.bounds.east].map((v) => v.toFixed(6)).join(','),
+        });
+        const blob = await HM.encodeGreyStream(t.w, t.h, grey.bits, grey.data, { view: { x0: t.x0, y0: t.y0, stride: W }, pixelsPerMetre: pixelsPerMetre(), text });
+        entries.push({ name: base + '_' + t.name + '_' + t.w + 'x' + t.h + '_' + grey.bits + 'bit.png', data: blob });
+        if (vc) {
+          const text = Vec.toDxf(shown(), grid.bounds, grid.W, grid.H, Object.assign({}, vc.o, { window: { x0: t.x0, y0: t.y0, w: t.w, h: t.h } }));
+          entries.push({ name: base + '_' + t.name + '_vectors.dxf', data: text });
+        }
+        if (withRoute) {
+          say('Drawing the route for ' + t.name + where + '…');
+          entries.push({ name: base + '_' + t.name + '_route.png', data: await routeLayerPng(t.w, t.h, tb, pm, { pixelsPerMetre: pixelsPerMetre(), text: { Tile: t.name + ' of ' + tp.cols + 'x' + tp.rows } }) });
+        }
+      }
+      entries.push({ name: 'tiles.txt', data: tilesLayoutText(tp, base, grey.bits) });
+      say('Packing the ZIP…');
+      const zip = await Zip.makeZip(entries);
+      say('Saved ' + saveBlob(zip, base + '_tiles_' + tp.cols + 'x' + tp.rows + '.zip') + ' (' + tp.count + ' tiles, ' + (zip.size / 1048576).toFixed(1) + ' MB).' + vecNote);
+    } catch (err) {
+      say('Export failed: ' + err.message);
+    } finally {
+      tilesBusy = false; btn.disabled = false;
     }
   });
 
@@ -1259,11 +1514,11 @@
     updateRouteExportInfo();
     updateLayersUi();
     updateStlUi();
+    updateTileUi();
   }
   ['layer-size', 'layer-px'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
   $('route-width').addEventListener('input', updateRouteExportInfo);
   ['carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', updateRouteExportInfo));
-  $('stepover').addEventListener('input', refresh);
 
   // PNG / Vector tabs for the route export.
   (function () {
@@ -1286,6 +1541,26 @@
   }
   const routeStatus = (t) => { $('route-export-status').textContent = t; };
 
+  /** The route as a transparent RGBA PNG W x H over `bounds` (pm = metres per pixel), drawn a strip at a time. o: { text, pixelsPerMetre, isCancelled, onProgress }. */
+  async function routeLayerPng(W, H, bounds, pm, o) {
+    const opts = o || {}, b = bounds;
+    const rowsPerBand = Math.max(1, Math.floor(4e6 / W));           // about 4 M pixels per strip
+    const br = Track.createBandRasterizer(shown(), b, W, H, lineWidthM() / 2 / pm, 'uniform', rowsPerBand);
+    const cover = new Float32Array(W * rowsPerBand), rgba = new Uint8Array(W * rowsPerBand * 4);
+    for (let i = 0; i < W * rowsPerBand; i++) { rgba[i * 4] = ROUTE_RGB[0]; rgba[i * 4 + 1] = ROUTE_RGB[1]; rgba[i * 4 + 2] = ROUTE_RGB[2]; }
+    return HM.encodePngStream({
+      width: W, height: H, channels: 4, rowsPerBand,
+      text: Object.assign({ Software: 'MapNC', Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','), RouteWidthM: String(lineWidthM()) }, opts.text),
+      pixelsPerMetre: opts.pixelsPerMetre || null, isCancelled: opts.isCancelled, onProgress: opts.onProgress,
+      getRows: async (y0, n) => {
+        const band = Math.floor(y0 / rowsPerBand);
+        if (br.isEmpty(band)) { for (let i = 0; i < W * n; i++) rgba[i * 4 + 3] = 0; }
+        else { br.render(band, cover); for (let i = 0; i < W * n; i++) rgba[i * 4 + 3] = Math.round(cover[i] * 255); }
+        return rgba.subarray(0, W * n * 4);
+      },
+    });
+  }
+
   let layerBusy = false, layerCancel = false;
   $('export-route-btn').addEventListener('click', async () => {
     const btn = $('export-route-btn');
@@ -1295,24 +1570,12 @@
     layerBusy = true; layerCancel = false;
     btn.textContent = 'Cancel';
     try {
-      const rowsPerBand = Math.max(1, Math.floor(4e6 / d.W));           // about 4 M pixels per strip
-      const br = Track.createBandRasterizer(shown(), d.bounds, d.W, d.H, lineWidthM() / 2 / d.pm, 'uniform', rowsPerBand);
-      const cover = new Float32Array(d.W * rowsPerBand), rgba = new Uint8Array(d.W * rowsPerBand * 4);
-      for (let i = 0; i < d.W * rowsPerBand; i++) { rgba[i * 4] = ROUTE_RGB[0]; rgba[i * 4 + 1] = ROUTE_RGB[1]; rgba[i * 4 + 2] = ROUTE_RGB[2]; }
-      const mm = carveLongMm(), b = d.bounds;
+      const mm = carveLongMm();
       routeStatus('Drawing route layer… 0%');
-      const blob = await HM.encodePngStream({
-        width: d.W, height: d.H, channels: 4, rowsPerBand,
-        text: { Software: 'MapNC', Bounds: [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(','), RouteWidthM: String(lineWidthM()) },
+      const blob = await routeLayerPng(d.W, d.H, d.bounds, d.pm, {
         pixelsPerMetre: mm ? Math.max(d.W, d.H) / (mm / 1000) : null,
         isCancelled: () => layerCancel,
         onProgress: (f) => routeStatus('Drawing route layer… ' + Math.round(f * 100) + '%'),
-        getRows: async (y0, n) => {
-          const band = Math.floor(y0 / rowsPerBand);
-          if (br.isEmpty(band)) { for (let i = 0; i < d.W * n; i++) rgba[i * 4 + 3] = 0; }
-          else { br.render(band, cover); for (let i = 0; i < d.W * n; i++) rgba[i * 4 + 3] = Math.round(cover[i] * 255); }
-          return rgba.subarray(0, d.W * n * 4);
-        },
       });
       routeStatus('Saved ' + saveBlob(blob, exportBaseName(d) + '_' + d.W + 'x' + d.H + '_route.png') + ' (' + (blob.size / 1048576).toFixed(2) + ' MB).');
     } catch (err) {
@@ -1375,20 +1638,22 @@
       if (token === osmToken) info.textContent = osmSummary(r);
     }, 400);
   }
-  OSM_LAYERS.forEach((l) => $(l.id).addEventListener('change', updateOsmInfo));
+  OSM_LAYERS.forEach((l) => $(l.id).addEventListener('change', () => { updateOsmInfo(); updateTileUi(); }));
 
   let vectorBusy = false;
-  async function vectorExport(kind) {
-    if (vectorBusy) return;
-    const grid = exportGrid();
-    if (!grid) return;
+  /**
+   * What a vector export holds, for a heightmap grid: the contour and map layers that are ticked (the route is separate).
+   * Returns { layers, parts, osmNote, wantContours, wantOsm, o } with `o` the options for Vec.toSvg/toDxf, or { stop } with
+   * why there is nothing to write. `say` shows progress.
+   */
+  async function vectorContent(grid, say) {
     const wantContours = $('vec-contours').checked && !$('vec-contours').disabled;
     const wantOsm = osmKinds().length > 0;
-    if (!track && !wantContours && !wantOsm) { routeStatus('Nothing to export: load a route or turn on contour lines or a map layer.'); return; }
+    if (!track && !wantContours && !wantOsm) return { stop: 'Nothing to export: load a route or turn on contour lines or a map layer.' };
     const layers = [], parts = [];
     if (wantContours) {
       const r = contourResult();
-      if (r.error) { routeStatus('Contours: ' + r.error); return; }
+      if (r.error) return { stop: 'Contours: ' + r.error };
       const pick = (idx) => [].concat(...r.levels.filter((l) => l.index === idx).map((l) => l.lines));
       const minor = pick(false), major = pick(true);
       if (minor.length) layers.push({ name: 'contours', color: '#9a6b3c', aci: 30, width: 0.4, lines: minor });
@@ -1396,32 +1661,42 @@
     }
     let osmNote = '';
     if (wantOsm) {
-      vectorBusy = true; routeStatus('Fetching OpenStreetMap data…');
+      vectorBusy = true; say('Fetching OpenStreetMap data…');
       const r = await osmLayers(grid);
       vectorBusy = false;
-      if (r.error) { routeStatus('OpenStreetMap: ' + r.error); return; }
+      if (r.error) return { stop: 'OpenStreetMap: ' + r.error };
       layers.push(...r.layers);
       osmNote = ' ' + osmSummary(r);
       for (const l of OSM_LAYERS) if (r.layers.some((x) => x.name === l.name)) parts.push(l.kind === 'water' || l.kind === 'lakes' ? 'water' : 'roads');
-      if (!r.layers.length && !track && !wantContours) { routeStatus('OpenStreetMap has nothing of that kind in this region.'); return; }
+      if (!r.layers.length && !track && !wantContours) return { stop: 'OpenStreetMap has nothing of that kind in this region.' };
     }
     const mm = carveLongMm(), gs = Geo.groundSize(grid.bounds), longM = Math.max(gs.widthM, gs.heightM);
     const o = {
       mmPerPx: mm ? mm / Math.max(grid.W, grid.H) : 0,
       lineWidth: mm ? lineWidthM() * (mm / longM) : 0,     // only how thick the SVG line looks; CAM uses the centre line
-      border: $('vec-border').checked, marks: $('vec-marks').checked, title: (track && track.name) || 'MapNC', layers,
+      marks: $('vec-marks').checked, title: (track && track.name) || 'MapNC', layers,
       credit: wantOsm ? OSM.CREDIT : '',
     };
+    return { layers, parts, osmNote, wantContours, wantOsm, o };
+  }
+
+  async function vectorExport(kind) {
+    if (vectorBusy) return;
+    const grid = exportGrid();
+    if (!grid) return;
+    const c = await vectorContent(grid, routeStatus);
+    if (c.stop) { routeStatus(c.stop); return; }
+    const { layers, parts, o } = c, mm = carveLongMm();
     const text = kind === 'svg' ? Vec.toSvg(shown(), grid.bounds, grid.W, grid.H, o) : Vec.toDxf(shown(), grid.bounds, grid.W, grid.H, o);
     const blob = new Blob([text], { type: kind === 'svg' ? 'image/svg+xml' : 'application/dxf' });
-    const what = [track ? 'route' : '', wantContours && layers.some((l) => /^contours/.test(l.name)) ? 'contours' : '']
+    const what = [track ? 'route' : '', c.wantContours && layers.some((l) => /^contours/.test(l.name)) ? 'contours' : '']
       .concat(parts.filter((v, i) => parts.indexOf(v) === i)).filter(Boolean).join('-') || 'frame';
-    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_' + what + '.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').' + osmNote);
+    routeStatus('Saved ' + saveBlob(blob, exportBaseName(grid) + '_' + grid.W + 'x' + grid.H + '_' + what + '.' + kind) + ' (' + (blob.size / 1024).toFixed(0) + ' KB, ' + (mm ? 'mm' : 'px') + ').' + c.osmNote);
   }
   $('export-svg-btn').addEventListener('click', () => vectorExport('svg'));
   $('export-dxf-btn').addEventListener('click', () => vectorExport('dxf'));
 
-  // ---- STL mesh export (full-precision terrain for programs that reduce a PNG to 8 bits) ----------
+  // ---- STL mesh export (full-precision terrain for programs that read a mesh) ----------
   const STL = window.MapNCStl;
   function stlPlan() {
     if (!elevation) return { why: 'Waiting for the elevation data.' };

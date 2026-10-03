@@ -24,13 +24,12 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
 
   await pg.click('summary:has-text("Output size")'); await pg.fill('#carve-size', '12');
   check('advice appears with a carve size', /stepover/.test(await txt('out-advice')), await txt('out-advice'));
-  await pg.fill('#stepover', '0.01'); await pg.waitForTimeout(100); check('too-coarse warning for a very fine stepover', /Too coarse/.test(await txt('out-advice')), await txt('out-advice'));
-  await pg.fill('#stepover', '5'); await pg.waitForTimeout(100); check('generous stepover is fine or over-provisioned', /sufficient|More than needed|only sampled/.test(await txt('out-advice')), await txt('out-advice')); await pg.fill('#stepover', '');
+  await pg.fill('#carve-size', '400'); await pg.waitForTimeout(100); check('too-coarse warning for a huge carve', /Too coarse/.test(await txt('out-advice')) && /warning/.test(await pg.getAttribute('#out-advice', 'class')), await txt('out-advice'));
+  await pg.fill('#carve-size', '12'); await pg.waitForTimeout(100); check('modest carve gets no warning style', !/warning/.test(await pg.getAttribute('#out-advice', 'class')), await txt('out-advice'));
   // -- fast path: raw vs clean for the vector, same size PNG
   files.px = await dl('#export-dxf-btn', 'raw.dxf'); await pg.waitForTimeout(200);
   check('vector hint switches to millimetres', /millimetres/.test(await txt('vec-hint')));
   files.svg = await dl('#export-svg-btn', 'raw.svg'); files.dxf = await dl('#export-dxf-btn', 'mm.dxf');
-  await pg.uncheck('#vec-border'); files.dxfNoBorder = await dl('#export-dxf-btn', 'noborder.dxf'); await pg.check('#vec-border');
   await pg.click('summary:has-text("Clean up")'); await pg.check('#clean-spikes'); await pg.fill('#clean-spacing', '3'); await pg.waitForTimeout(400);
   files.dxfClean = await dl('#export-dxf-btn', 'clean.dxf');
   await pg.click('#clean-reset'); await pg.waitForTimeout(300);

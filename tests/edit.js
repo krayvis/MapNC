@@ -106,7 +106,7 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   if (!(await pg.locator('#tab-vec').isVisible())) await pg.click('summary:has-text("Export")');
   await pg.click('#tab-vec');
   const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#export-dxf-btn')]); const dxfPath = S + '/edit.dxf'; await dl.saveAs(dxfPath);
-  const nv = (fs.readFileSync(dxfPath, 'utf8').match(/\nVERTEX\n/g) || []).length - 4 - 12;   // minus the 4 border corners and the 12 corner-mark points
+  const nv = (fs.readFileSync(dxfPath, 'utf8').match(/\nVERTEX\n/g) || []).length - 6;   // minus the 6 corner-mark points (two brackets)
   check('DXF export has the edited vertex count', nv === nE, `${nv} vs ${nE}`);
   await pg.click('#edit-toggle');
 

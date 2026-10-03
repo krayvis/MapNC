@@ -44,6 +44,23 @@
   ];
   const DEP_NOMINAL_RES_M = 10;      // 1/3 arc-second is about 10 m
 
+  // Rough outline of Canada, [lon, lat] going clockwise from the Pacific end of the 49th parallel. The southern edge
+  // follows the US border (through the Great Lakes by their middle), the rest is a loose coastline that errs toward
+  // including water. Only used to auto-pick the Canadian source, which needs all four corners of the region inside;
+  // near a coast or the border the choice falls back to the global source, and the user can pick Canada by hand.
+  const CANADA_OUTLINE = [
+    [-123.3, 49.0], [-123.0, 48.6], [-123.4, 48.3], [-124.8, 48.4], [-128.5, 50.5], [-131.2, 53.5], [-130.0, 54.7],
+    [-130.0, 55.9], [-131.0, 56.7], [-133.0, 58.2], [-135.0, 59.7], [-137.5, 59.0], [-139.0, 60.3], [-141.0, 60.3],
+    [-141.0, 83.0], [-60.0, 83.0], [-60.0, 67.0], [-55.5, 53.5], [-52.5, 52.0], [-52.5, 47.5], [-53.0, 46.6],
+    [-56.0, 46.6], [-59.5, 45.8], [-60.2, 45.2], [-61.5, 45.0], [-63.5, 44.5], [-66.0, 43.5], [-66.3, 44.4],
+    [-67.0, 44.9], [-67.4, 45.2], [-67.8, 45.7], [-67.8, 47.07], [-68.3, 47.35], [-69.2, 47.45], [-70.0, 46.7],
+    [-70.3, 45.9], [-71.1, 45.3], [-71.5, 45.0], [-74.7, 45.0], [-75.3, 44.85], [-76.3, 44.1], [-76.5, 43.6],
+    [-79.0, 43.3], [-78.9, 42.9], [-79.0, 42.8], [-81.0, 42.2], [-82.5, 41.7], [-83.1, 42.0], [-83.1, 42.3],
+    [-82.8, 42.4], [-82.4, 43.0], [-82.5, 44.0], [-82.4, 45.2], [-83.5, 45.9], [-84.0, 46.0], [-84.4, 46.5],
+    [-85.0, 47.1], [-88.0, 48.3], [-89.6, 48.0], [-90.8, 48.2], [-91.5, 48.05], [-92.0, 48.3], [-93.0, 48.6],
+    [-94.3, 48.7], [-95.15, 49.0],
+  ];
+
   function normalizeBounds(a, b) {
     return {
       south: Math.min(a.lat, b.lat), north: Math.max(a.lat, b.lat),
@@ -69,6 +86,25 @@
   function us3depRegion(b) {
     for (const box of US_3DEP_BOXES) if (insideBox(b, box)) return box.name;
     return null;
+  }
+
+  function insideOutline(lon, lat, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const [xi, yi] = poly[i], [xj, yj] = poly[j];
+      if ((yi > lat) !== (yj > lat) && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  /**
+   * How the region sits against the (rough) Canadian outline: 'in' (all four corners inside), 'out' (none), or
+   * 'edge' (some of each: it crosses the border or a coast).
+   */
+  function canadaRegion(b) {
+    let n = 0;
+    for (const [lon, lat] of [[b.west, b.south], [b.west, b.north], [b.east, b.south], [b.east, b.north]]) if (insideOutline(lon, lat, CANADA_OUTLINE)) n++;
+    return n === 4 ? 'in' : n === 0 ? 'out' : 'edge';
   }
 
   /** Metres per Web Mercator pixel (256 px tiles) at a latitude and zoom. */
@@ -109,7 +145,11 @@
   const AUTO_MIN_PX = 2048;               // Auto: long side is at least this many pixels
   const TERRARIUM_NATIVE_RES_M = 30;      // honest data resolution for "scale x source" (SRTM-class); tiles are finer
 
-  function nativeResM(id) { return id === '3dep' ? DEP_NOMINAL_RES_M : TERRARIUM_NATIVE_RES_M; }
+  // The Canadian mosaic is 1 to 2 m where lidar exists and 20 to 30 m elsewhere, and the service does not say which, so the
+  // 10 m used here is a middle value, enough for the resolution advice to be sensible either way.
+  const CANADA_NOMINAL_RES_M = 10;
+
+  function nativeResM(id) { return id === '3dep' ? DEP_NOMINAL_RES_M : id === 'canada' ? CANADA_NOMINAL_RES_M : TERRARIUM_NATIVE_RES_M; }
 
   /**
    * Metres per output pixel for a resolution spec { mode, value }:
@@ -135,12 +175,15 @@
   }
 
   /**
-   * Choose a source and output grid. `pref` is 'auto' | '3dep' | 'terrarium'; `spec` is the resolution spec above.
+   * Choose a source and output grid. `pref` is 'auto' | '3dep' | 'canada' | 'terrarium'; `spec` is the resolution spec above.
+   * Auto: Canada when the region is inside the outline, otherwise 3DEP inside its US boxes (and not across the border:
+   * a region that crosses the Canadian outline has no single high-resolution source, so it gets the global one).
    * Returns { id, label, resolutionM (source), outputResM, resolutionNote, grid, interpolation?, zoom?, tiles?, tooLarge? }.
    */
   function planSource(b, pref, spec) {
+    const ca = canadaRegion(b);
     const region = us3depRegion(b);
-    const id = pref === 'auto' ? (region ? '3dep' : 'terrarium') : pref;
+    const id = pref === 'auto' ? (ca === 'in' ? 'canada' : ca === 'edge' ? 'terrarium' : region ? '3dep' : 'terrarium') : pref;
     const native = nativeResM(id);
     const outRes = chooseResM(b, native, spec);
     const grid = gridFor(b, outRes);
@@ -152,6 +195,12 @@
         id, region, label: 'USGS 3DEP', resolutionM: native, outputResM: outRes, grid,
         interpolation: up > 1.05 ? 'cubic' : 'bilinear',
         resolutionNote: (region ? '~10 m (1/3 arc-second)' : '~10 m where covered (outside CONUS/Hawaii, expect NoData)') + factor,
+      };
+    }
+    if (id === 'canada') {
+      return {
+        id, region: ca === 'in' ? 'Canada' : null, label: 'NRCan High Resolution DEM', resolutionM: native, outputResM: outRes, grid,
+        resolutionNote: '1 to 2 m where lidar exists, 20 to 30 m elsewhere (varies; shown as ~10 m)' + (ca === 'in' ? '' : '; the region may reach past Canadian coverage, expect NoData') + (up > 1.05 ? ', output ' + up.toFixed(1) + '× finer than the assumed source (the service does the upscaling)' : up < 0.95 ? ', output coarser than source' : ''),
       };
     }
     const mid = (b.south + b.north) / 2;
@@ -250,7 +299,7 @@
     return a > 0 && c > 0 && Number.isFinite(a) && Number.isFinite(c) ? a / c : null;
   }
 
-  const api = { centredBounds, groundRatio, boxAround, centreOf, constrainCorner, reshapeBounds, moveBounds, parseRatio, LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, terrariumPixelM, tileRange, gridFor, overCap, chooseResM, zoomForRes, nativeResM, AUTO_MIN_PX, planSource };
+  const api = { centredBounds, groundRatio, boxAround, centreOf, constrainCorner, reshapeBounds, moveBounds, parseRatio, LIMITS, lonToTileX, latToTileY, setMaxSide, memoryEstimateMB, DEP_NOMINAL_RES_M, normalizeBounds, groundSize, us3depRegion, canadaRegion, CANADA_OUTLINE, terrariumPixelM, tileRange, gridFor, overCap, chooseResM, zoomForRes, nativeResM, AUTO_MIN_PX, planSource };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCGeo = api;
 })(typeof self !== 'undefined' ? self : this);

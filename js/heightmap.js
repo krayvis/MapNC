@@ -12,6 +12,12 @@
  *   Linear (no curve) is the default. With a curve, metres per grey level is no longer constant; `metresPerLevel` is then
  *   the average over the window.
  *
+ * Edge border (opts.border = { style: 'rim' | 'chamfer' | 'round', widthPx, toward: 'high' | 'low', width, height }): after the
+ *   mapping above and before invert, the outermost widthPx pixels (distance measured to the nearest edge, so corners are
+ *   mitred) are pulled toward the top (white) or the bottom (black) of the window. 'rim' is a flat band at that level;
+ *   'chamfer' slopes linearly from the terrain to that level at the edge; 'round' follows a quarter circle, so it leaves
+ *   the terrain tangentially and turns steeply at the edge (a rounded-over edge). No-data pixels are left as grey 0.
+ *
  * Works in browsers and Node 18+ (needs Blob + CompressionStream for PNG encoding).
  */
 (function (root) {
@@ -38,6 +44,14 @@
     const cv = opts.curve && opts.curve.strength > 1 && (opts.curve.kind === 'valleys' || opts.curve.kind === 'peaks') ? opts.curve : null;
     const gamma = cv ? (cv.kind === 'valleys' ? 1 / cv.strength : cv.strength) : 1;
     const out = bits === 8 ? new Uint8Array(elev.length) : new Uint16Array(elev.length);
+    const bd = opts.border && opts.border.widthPx > 0 && opts.border.width > 0 ? opts.border : null;
+    const bw = bd ? Math.min(bd.widthPx, Math.min(bd.width, bd.height) / 2) : 0, edgeT = bd && bd.toward === 'high' ? 1 : 0;
+    const blendAt = (d) => {                                   // weight of the border level at distance d (px) from the edge
+      if (d >= bw) return 0;
+      if (bd.style === 'rim') return 1;
+      const s = Math.max(0, d - 0.5) / bw;                    // the outermost pixel sits at the full edge level
+      return bd.style === 'round' ? 1 - Math.sqrt(Math.max(0, 1 - (1 - s) * (1 - s))) : 1 - s;
+    };
     let clippedHigh = 0, clippedLow = 0, nodata = 0;
     for (let i = 0; i < elev.length; i++) {
       const z = elev[i];
@@ -45,10 +59,15 @@
       let t = (z - lo) * scale;
       if (cv) { const u = t / k; if (u > 0 && u < 1) t = Math.pow(u, gamma) * k; }   // outside the window it clips as before
       if (t > 1) { clippedHigh++; t = 1; } else if (t < 0) { clippedLow++; t = 0; }
+      if (bd) {
+        const x = i % bd.width, y = (i - x) / bd.width;
+        const d = Math.min(x + 0.5, y + 0.5, bd.width - x - 0.5, bd.height - y - 0.5);
+        if (d < bw) { const b = blendAt(d); t = t * (1 - b) + edgeT * b; }
+      }
       const g = Math.round(t * maxVal);
       out[i] = opts.invert ? maxVal - g : g;
     }
-    return { data: out, bits, maxVal, lo, hi, k, curve: cv ? { kind: cv.kind, strength: cv.strength } : null, metresPerLevel: (hi - lo) / (k * maxVal), clippedHigh, clippedLow, nodata };
+    return { data: out, bits, maxVal, lo, hi, k, curve: cv ? { kind: cv.kind, strength: cv.strength } : null, border: bd ? { style: bd.style, toward: bd.toward || 'low', widthPx: bw, widthMm: bd.widthMm } : null, metresPerLevel: (hi - lo) / (k * maxVal), clippedHigh, clippedLow, nodata };
   }
 
   // ---- PNG ---------------------------------------------------------------------------------
@@ -133,15 +152,16 @@
 
 
   /**
-   * Encode an 8-bit image (channels 1 or 4) without ever holding it whole: rows come from `getRows(y0, n)` a band at a
-   * time (a Uint8Array of n * width * channels bytes), are filtered, and are fed straight into the compressor. Memory
-   * stays at about one band plus the compressed output, so very large mostly-empty images (a route on a transparent
-   * canvas) are cheap. Options: { width, height, channels, rowsPerBand, getRows, text, pixelsPerMetre, onProgress,
-   * isCancelled }. Rejects with an AbortError if isCancelled() turns true.
+   * Encode an image (8 or 16 bits, channels 1 or 4) without ever holding it whole: rows come from `getRows(y0, n)` a
+   * band at a time (a Uint8Array of n * width * channels * bytesPerSample bytes, 16-bit samples big-endian), are
+   * filtered, and are fed straight into the compressor. Memory stays at about one band plus the compressed output, so
+   * very large mostly-empty images (a route on a transparent canvas) are cheap. Options: { width, height, bits (default
+   * 8), channels, rowsPerBand, getRows, text, pixelsPerMetre, onProgress, isCancelled }. Rejects with an AbortError if
+   * isCancelled() turns true.
    */
   async function encodePngStream(o) {
     const { width, height, getRows, rowsPerBand } = o;
-    const channels = o.channels === 4 ? 4 : 1, rowBytes = width * channels;
+    const channels = o.channels === 4 ? 4 : 1, bits = o.bits === 16 ? 16 : 8, rowBytes = width * channels * (bits === 16 ? 2 : 1);
     const cs = new CompressionStream('deflate');
     const writer = cs.writable.getWriter(), reader = cs.readable.getReader();
     const packed = [];
@@ -170,7 +190,7 @@
       writer.abort().catch(() => {});
       throw err;
     }
-    const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdrFor(width, height, 8, channels))];
+    const parts = [new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdrFor(width, height, bits, channels))];
     pushMeta(parts, o.text, o.pixelsPerMetre);
     let group = [], size = 0;                                    // merge the compressor's small outputs into ~256 KB IDATs
     const flush = () => { if (size) { const b = new Uint8Array(size); let at = 0; for (const g of group) { b.set(g, at); at += g.length; } parts.push(chunk('IDAT', b)); group = []; size = 0; } };
@@ -199,7 +219,34 @@
     }
   }
 
-  const api = { resolveRange, toGrey, encodePng, encodePngStream };
+  /**
+   * Streaming encode of a greyscale heightmap from the Uint8Array/Uint16Array that toGrey() returns. Same file as
+   * encodePng (one channel, filter Up) without the full-size uncompressed copy; o: { rowsPerBand, text, pixelsPerMetre,
+   * onProgress, isCancelled, view }. `view` { x0, y0, stride } encodes a width x height window of a bigger grid whose rows
+   * are `stride` samples long (a tile of the heightmap), starting at column x0, row y0, with no copy.
+   */
+  function encodeGreyStream(width, height, bits, samples, o) {
+    const opts = o || {}, view = opts.view || {}, vx = view.x0 || 0, vy = view.y0 || 0, stride = view.stride || width;
+    const rowBytes = width * (bits === 16 ? 2 : 1);
+    let buf = new Uint8Array(0);
+    return encodePngStream({
+      width, height, bits, channels: 1,
+      rowsPerBand: opts.rowsPerBand || Math.max(1, Math.floor(4194304 / rowBytes)),     // about 4 MB of raw rows per band
+      getRows: (y0, n) => {
+        if (buf.length !== n * rowBytes) buf = new Uint8Array(n * rowBytes);
+        for (let r = 0; r < n; r++) {
+          const s = (vy + y0 + r) * stride + vx;
+          if (bits === 16) {
+            for (let i = 0, j = r * rowBytes; i < width; i++, j += 2) { const v = samples[s + i]; buf[j] = v >> 8; buf[j + 1] = v & 255; }
+          } else buf.set(samples.subarray(s, s + width), r * rowBytes);
+        }
+        return buf;
+      },
+      text: opts.text, pixelsPerMetre: opts.pixelsPerMetre, onProgress: opts.onProgress, isCancelled: opts.isCancelled,
+    });
+  }
+
+  const api = { resolveRange, toGrey, encodePng, encodePngStream, encodeGreyStream };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCHeightmap = api;
 })(typeof self !== 'undefined' ? self : this);

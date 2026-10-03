@@ -45,7 +45,7 @@
           <button id="track-load" type="button">Load file</button>
           <button id="track-clear" type="button" hidden>Clear route</button>
         </div>
-        <p class="hint">Loading a route fits the region to it. A sample (Sierra Buttes Fire Lookout, California) is loaded to start; Clear route removes it.</p>
+        <p class="hint">Loading a route fits the region to it, and turns a fixed aspect ratio to portrait or landscape to suit the route. A sample (Sierra Buttes Fire Lookout, California) is loaded to start.</p>
         <div class="row">
           <label class="field">Margin (% each side)
             <input id="track-margin" type="number" min="0" max="200" step="1" value="15">
@@ -132,7 +132,11 @@
         <button id="edit-discard" type="button" hidden>Discard manual edits</button>
         <h3>Smooth curve</h3>
         <label class="inline"><input type="checkbox" id="spline-on"> Fit a spline through the points</label>
-        <p class="hint">Do this last: the curve passes through every point, so remove strays first. It is used on the map, preview and every export.</p>
+        <p class="hint">Do this last: with no smoothing the curve passes through every point, so remove strays first. It is used on the map, preview and every export.</p>
+        <div class="dep" data-for="spline-on" hidden>
+          <label>Smoothing <input type="range" id="spline-smooth" min="0" max="0" step="1" value="0" disabled> <output id="spline-smooth-out">None</output></label>
+          <p class="hint" id="spline-smooth-hint">Steps are sized from your route's point spacing. Each step rounds off wobble about that many metres wide; the first step is a light touch.</p>
+        </div>
       </div>
     </details>
 
@@ -161,6 +165,39 @@
             <input id="curve-strength" type="number" min="1" max="8" step="0.1" value="2">
           </label>
           <label class="inline"><input type="checkbox" id="invert"> Invert (white = low)</label>
+          <label class="inline"><input type="checkbox" id="flatten-lakes"> Flatten lakes</label>
+          <p class="hint" id="lake-note">Pools each lake to one flat level (the median of its own elevation) using OpenStreetMap outlines, so water carves as a flat surface. Needs internet; regions up to 50 km. Rivers are left alone.</p>
+          <label class="inline"><input type="checkbox" id="fill-gaps"> Fill gaps (no-data)</label>
+          <p class="hint" id="gap-note">Interpolates across small holes in the elevation data so they do not carve as pits. Large missing areas (outside the source's coverage, open sea) are left as they are.</p>
+          <div class="row">
+            <label class="inline"><input type="checkbox" id="raise-floor"> Raise everything below</label>
+            <label class="field" style="max-width:6rem"><input id="floor-level" type="number" step="any" value="0" aria-label="Floor level in metres"></label>
+            <span class="hint">m to that level</span>
+          </div>
+          <p class="hint" id="floor-note">Flattens low ground to one level, such as a flat sea at 0 m, and starts the automatic range there. Points below it are lost.</p>
+          <fieldset class="field" id="border-set">
+            <legend>Edge border</legend>
+            <div class="row">
+              <label class="field">Style
+                <select id="border-style">
+                  <option value="none" selected>None (terrain stops at the edge)</option>
+                  <option value="rim">Solid rim (flat band)</option>
+                  <option value="chamfer">Chamfer (straight slope)</option>
+                  <option value="round">Rounded (curved edge)</option>
+                </select>
+              </label>
+              <label class="field" id="border-width-wrap" hidden>Width (mm)
+                <input id="border-width" type="number" min="0.1" step="any" value="5">
+              </label>
+              <label class="field" id="border-toward-wrap" hidden>Edge level
+                <select id="border-toward">
+                  <option value="high">Top of the relief (white)</option>
+                  <option value="low">Bottom of the relief (black)</option>
+                </select>
+              </label>
+            </div>
+            <p class="hint" id="border-note">A rim leaves a flat frame around the terrain. A chamfer or rounded edge eases the terrain down (or up) to the edge level instead of ending in a sharp cliff. The width is in millimetres of the finished carve, so set the carve size in step 4.</p>
+          </fieldset>
           <dl class="info">
             <dt>Window</dt><dd id="hm-window">–</dd>
             <dt>Per grey level</dt><dd id="hm-level">–</dd>
@@ -194,14 +231,20 @@
             <select id="carve-unit" aria-label="Carve size unit"><option value="in" selected>in</option><option value="mm">mm</option></select>
           </div>
         </div>
-        <label class="field">Finishing stepover (mm, optional)
-          <input id="stepover" type="number" min="0.01" step="any" placeholder="e.g. 0.25">
-        </label>
         <dl id="out-info" class="info" hidden>
           <dt>Pixel size</dt><dd id="out-px">–</dd>
           <dt>On the carve</dt><dd id="out-carve">–</dd>
         </dl>
         <p id="out-advice" class="hint" hidden></p>
+        <div class="row">
+          <label class="field">Largest piece (<span class="carve-unit-name">in</span>, optional)
+            <input id="piece-size" type="number" min="0" step="any" placeholder="e.g. 20">
+          </label>
+          <label class="field">Tile overlap (<span class="carve-unit-name">in</span>, optional)
+            <input id="tile-overlap" type="number" min="0" step="any" placeholder="e.g. 0.25">
+          </label>
+        </div>
+        <p id="tile-note" class="hint">For a carve bigger than your machine or stock, enter the largest piece you can cut (in the carve size unit) and MapNC will say how to tile it.</p>
         <p class="hint">More pixels than the source has adds no real terrain detail, but gives CAD/CAM software a smooth surface and a smooth route line instead of visible steps. Entering the carve size also stores the real-world size in the PNG.</p>
       </div>
     </details>
@@ -222,8 +265,16 @@
             <button id="export-btn" type="button">Export PNG</button>
           </div>
           <p id="export-status" class="hint" role="status"></p>
+          <div id="tile-export" hidden>
+            <h3>Tiles</h3>
+            <p id="tile-export-info" class="hint"></p>
+            <label class="inline" id="tile-route-wrap" hidden><input type="checkbox" id="tile-route" checked> Also a route layer PNG for each tile</label>
+            <label class="inline" id="tile-vectors-wrap" hidden><input type="checkbox" id="tile-vectors" checked> Also a DXF for each tile: the route, plus the contour and map layers ticked in step 6, cut at the tile edges (with corner marks if switched on)</label>
+            <div class="row"><button id="export-tiles-btn" type="button">Export tiles (ZIP)</button></div>
+            <p id="tile-export-status" class="hint" role="status"></p>
+          </div>
           <h3>3D mesh (STL)</h3>
-          <p class="hint">An alternative to the PNG for CAD/CAM programs that reduce a PNG to 8 bits (Carbide Create does). The mesh keeps the full precision of the elevation data and uses the heightmap step's range, curve and invert. Needs a carve size under Output size.</p>
+          <p class="hint">An alternative to the PNG for CAD/CAM programs that read a mesh. The mesh keeps the full precision of the elevation data and uses the heightmap step's range, curve and invert. Needs a carve size under Output size.</p>
           <div class="row">
             <label class="field">Relief height (mm)
               <input id="stl-relief" type="number" min="0.1" step="any" value="12">
@@ -301,9 +352,8 @@
             <p id="osm-info" class="hint" role="status" hidden></p>
             <p id="osm-credit" class="hint" hidden>Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL. It is fetched from the Overpass API when you tick a box. The credit is written into the exported file; if you show or sell what you make from it, credit OpenStreetMap too (see the README).</p>
           </fieldset>
-          <label class="inline"><input type="checkbox" id="vec-border" checked> Include a job-border rectangle</label>
-          <label class="inline"><input type="checkbox" id="vec-marks" checked> Include corner marks (L brackets at the four corners)</label>
-          <p class="hint">Select the layers together with the border or corner marks and scale the group: the border or marks span exactly the heightmap's extent, so scale that group to the heightmap's width and height (keep the aspect ratio locked), then delete them.</p>
+          <label class="inline"><input type="checkbox" id="vec-marks" checked> Include corner marks (L brackets at two opposite corners)</label>
+          <p class="hint">Select the layers together with the corner marks and scale the group: the marks span exactly the heightmap's extent, so scale that group to the heightmap's width and height (keep the aspect ratio locked), then delete them.</p>
           <div class="row">
             <button id="export-svg-btn" type="button">Export SVG</button>
             <button id="export-dxf-btn" type="button">Export DXF</button>
@@ -335,6 +385,7 @@
           <select id="source-select">
             <option value="auto" selected>Auto-detect</option>
             <option value="3dep">USGS 3DEP (US)</option>
+            <option value="canada">NRCan HRDEM (Canada)</option>
             <option value="terrarium">AWS Terrain Tiles (global)</option>
           </select>
         </label>
@@ -406,7 +457,7 @@
       </ul>
     </div>
     <footer id="credits" class="hint">
-      <b>Data sources.</b> Elevation: <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener">USGS 3DEP</a> (U.S. Geological Survey), and <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a> elsewhere (SRTM, GMTED, and other public datasets).
+      <b>Data sources.</b> Elevation: <a href="https://www.usgs.gov/3d-elevation-program" target="_blank" rel="noopener">USGS 3DEP</a> (U.S. Geological Survey), <a href="https://open.canada.ca/data/en/dataset/957782bf-847c-4644-a757-e383c0057995" target="_blank" rel="noopener">NRCan HRDEM</a> in Canada (contains information licensed under the Open Government Licence &ndash; Canada), and <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">AWS Terrain Tiles</a> elsewhere (SRTM, GMTED, and other public datasets).
       Roads, rivers and lakes (when you add them): © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>, ODbL.
       Background maps: OpenStreetMap, OpenTopoMap, Esri, USGS (credited on the map; display only).
       <a href="https://github.com/krayvis/MapNC#data-attribution" target="_blank" rel="noopener">Details and terms</a>.
@@ -445,8 +496,12 @@
   <script src="js/vendor/delaunator.min.js"></script>
   <script src="js/stl.js"></script>
   <script src="js/osm.js"></script>
+  <script src="js/lakes.js"></script>
+  <script src="js/fixes.js"></script>
   <script src="js/terrain3d.js"></script>
+  <script src="js/tiles.js"></script>
   <script src="js/vector.js"></script>
+  <script src="js/zip.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

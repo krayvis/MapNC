@@ -3,7 +3,7 @@
 'use strict';
 const { spawnSync } = require('child_process');
 const path = require('path');
-const ALL = ['clean', 'pngtest', 'vec', 'contours', 'stl', 'marks', 'curve', 'stream', 'hid', 'theme', 'default', 'aspect', 'auto', 'cleanui', 'contourui', 'hmview', 'osm', 'dep', 'terrain3d', 'edit', 'exports', 'smoke5'];
+const ALL = ['clean', 'pngtest', 'vec', 'contours', 'stl', 'marks', 'curve', 'stream', 'greystream', 'hid', 'theme', 'default', 'aspect', 'auto', 'cleanui', 'contourui', 'hmview', 'osm', 'lakes', 'fixes', 'fixesui', 'border', 'tiles', 'tilesui', 'dep', 'canada', 'terrain3d', 'edit', 'exports', 'smoke5'];
 const want = process.argv.slice(2).length ? process.argv.slice(2) : ALL;
 let failed = 0;
 for (const name of want) {

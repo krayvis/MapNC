@@ -48,6 +48,10 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   await pg.check('#spline-on'); await pg.waitForTimeout(400);
   check('spline redraws the map line', (await pathD()) !== d0);
   check('spline leaves the editable points alone', (await ctrlN()) === n0);
+  check('smoothing slider has finite steps', await pg.evaluate(() => { const r = document.getElementById('spline-smooth'); return !r.disabled && +r.max >= 3 && +r.max <= 6 && r.step === '1'; }));
+  const dSpline = await pathD(); await pg.fill('#spline-smooth', '3'); await pg.waitForTimeout(300);
+  check('smoothing slider redraws the line and shows metres', (await pathD()) !== dSpline && /\d m$/.test(await pg.locator('#spline-smooth-out').innerText()), await pg.locator('#spline-smooth-out').innerText());
+  await pg.fill('#spline-smooth', '0');
   await pg.uncheck('#spline-on'); await pg.waitForTimeout(400);
   check('spline off restores the line', (await pathD()) === d0);
   check('no elevation reload from cleaning', reqs === reqs0, `${reqs - reqs0} new requests`);

@@ -12,6 +12,10 @@
 
   const TERRARIUM_URL = (z, x, y) => 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/' + z + '/' + x + '/' + y + '.png';
   const DEP_URL = 'https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage';
+  // NRCan's High Resolution DEM mosaic, served as a WCS 1.1.1 coverage in lat/lon (the reply is an uncompressed float32 GeoTIFF).
+  const CANADA_URL = 'https://datacube.services.geo.ca/wrapper/ogc/elevation-hrdem-mosaic';
+  const CANADA_MAX_NODATA = 0.02; // Auto gives up on the Canadian source when more than this share of the grid is empty
+  const CANADA_MAX_SIDE = 3000;   // a 4000 px reply is 64 MB uncompressed, so the request stays smaller than the 3DEP one
   const DEP_CHUNK_PX = 2000;      // conservative per-request size until the service limit is read at runtime
   const DEP_MAX_SIDE = 4000;      // exportImage's usual per-request cap (the request is made in degree-square pixels, see fetch3dep)
   const CONCURRENCY = 4;
@@ -221,19 +225,20 @@
    * service drops the odd request, and one lost chunk would otherwise fail the whole region. ArcGIS also reports
    * errors as 200 + JSON/HTML, so the TIFF magic bytes are checked rather than the status code alone.
    */
-  async function fetchDepTiff(url, signal) {
+  async function fetchDepTiff(url, signal, what) {
+    what = what || '3DEP';
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
       checkAbort(signal);
       if (attempt) await new Promise((res) => setTimeout(res, 600 * attempt));
       try {
         const res = await fetch(url, { signal });
-        if (!res.ok) { lastErr = new Error('3DEP request failed: HTTP ' + res.status); if (res.status < 500) throw lastErr; continue; }
+        if (!res.ok) { lastErr = new Error(what + ' request failed: HTTP ' + res.status); if (res.status < 500) throw lastErr; continue; }
         const buf = await res.arrayBuffer();
         const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
         const isTiff = head.length >= 4 && ((head[0] === 0x49 && head[1] === 0x49 && head[2] === 42) || (head[0] === 0x4d && head[1] === 0x4d && head[3] === 42));
         if (isTiff) return buf;
-        lastErr = new Error('3DEP did not return a TIFF: ' + new TextDecoder().decode(buf.slice(0, 200)));
+        lastErr = new Error(what + ' did not return a TIFF: ' + new TextDecoder().decode(buf.slice(0, 200)));
       } catch (err) {
         if (err.name === 'AbortError' || (lastErr && err === lastErr)) throw err;
         lastErr = err;                                       // network failure: try again
@@ -242,7 +247,33 @@
     throw lastErr;
   }
 
-  async function fetch3dep(bounds, plan, opts) {
+  /**
+   * NRCan WCS 1.1.1 GetCoverage URL for a lat/lon box and a w x h pixel grid. The service takes the pixel size as
+   * `gridoffsets` (latitude step negative, then longitude step, in degrees) rather than a size; it answers a request in
+   * any other order with HTTP 500. The bounding box is south,west,north,east.
+   */
+  function canadaUrl(bbox, w, h) {
+    const step = (v) => Number(v.toPrecision(12));        // 1e-4 and not 0.00009999999999999786
+    const dLon = step((bbox.east - bbox.west) / w), dLat = step((bbox.north - bbox.south) / h);
+    const p = [
+      'service=WCS', 'version=1.1.1', 'request=GetCoverage', 'identifier=dtm', 'format=image/geotiff',
+      'boundingbox=' + [bbox.south, bbox.west, bbox.north, bbox.east].join(',') + ',urn:ogc:def:crs:EPSG::4326',
+      'gridbasecrs=urn:ogc:def:crs:EPSG::4326', 'gridcs=urn:ogc:def:crs:OGC::imageCRS',
+      'gridtype=urn:ogc:def:method:WCS:1.1:2dGridIn2dCrs', 'gridoffsets=' + -dLat + ',' + dLon,
+    ];
+    return CANADA_URL + '?' + p.join('&');
+  }
+
+  function fetch3dep(bounds, plan, opts) {
+    return fetchGridded(bounds, plan, opts, { what: '3DEP', maxSide: DEP_MAX_SIDE, url: (bbox, w, h) => depUrl(bbox, w, h, plan.interpolation) });
+  }
+
+  function fetchCanada(bounds, plan, opts) {
+    return fetchGridded(bounds, plan, opts, { what: 'NRCan', maxSide: CANADA_MAX_SIDE, url: canadaUrl });
+  }
+
+  /** Chunked fetch of a lat/lon GeoTIFF service; `svc` = { what (name for messages), maxSide, url(bbox, w, h) }. */
+  async function fetchGridded(bounds, plan, opts, svc) {
     const { signal, onProgress } = opts || {};
     const { width: W, height: H } = plan.grid;
     const out = new Float32Array(W * H);
@@ -260,15 +291,15 @@
       // the extent rather than stretching it, which shifted the whole elevation grid against the route and map. Request
       // a matching aspect, then resample the returned raster (using the extent its GeoTIFF reports) onto our grid.
       let rw = Math.max(1, Math.round(c.h * (bbox.east - bbox.west) / (bbox.north - bbox.south))), rh = c.h;
-      const shrink = Math.min(1, DEP_MAX_SIDE / Math.max(rw, rh));
+      const shrink = Math.min(1, svc.maxSide / Math.max(rw, rh));
       rw = Math.max(1, Math.round(rw * shrink)); rh = Math.max(1, Math.round(rh * shrink));
-      const raster = await parseDepRaster(await fetchDepTiff(depUrl(bbox, rw, rh, plan.interpolation), signal));
+      const raster = await parseDepRaster(await fetchDepTiff(svc.url(bbox, rw, rh), signal, svc.what));
       const have = raster.bbox || bbox;
       const px = (raster.width === c.w && raster.height === c.h && Math.abs(have.west - bbox.west) + Math.abs(have.east - bbox.east) + Math.abs(have.north - bbox.north) + Math.abs(have.south - bbox.south) < 1e-9)
         ? raster.data : resampleToExtent(raster, have, bbox, c.w, c.h);
       for (let row = 0; row < c.h; row++) out.set(px.subarray(row * c.w, (row + 1) * c.w), (c.y + row) * W + c.x);
     });
-    await pool(jobs, CONCURRENCY, (d, n) => onProgress && onProgress(d / n, '3DEP requests ' + d + '/' + n));
+    await pool(jobs, CONCURRENCY, (d, n) => onProgress && onProgress(d / n, svc.what + ' requests ' + d + '/' + n));
     checkAbort(signal);
     return { data: out, width: W, height: H, bounds, sourceLabel: plan.label };
   }
@@ -288,7 +319,7 @@
   }
 
   /**
-   * Fetch for a plan. In 'auto' mode a failed 3DEP fetch falls back to Terrarium; an explicit
+   * Fetch for a plan. In 'auto' mode a failed 3DEP or Canadian fetch falls back to Terrarium; an explicit
    * choice never silently switches source. Returns the result plus { note } describing any fallback.
    */
   async function fetchElevation(bounds, pref, opts) {
@@ -297,20 +328,30 @@
     if (plan.tooLarge || Geo.overCap(plan.grid)) throw new Error('Region exceeds the size cap.');
     let result, note = null;
     try {
-      result = plan.id === '3dep' ? await fetch3dep(bounds, plan, opts) : await fetchTerrarium(bounds, plan, opts);
+      result = plan.id === '3dep' ? await fetch3dep(bounds, plan, opts) : plan.id === 'canada' ? await fetchCanada(bounds, plan, opts) : await fetchTerrarium(bounds, plan, opts);
     } catch (err) {
-      if (err.name === 'AbortError' || pref !== 'auto' || plan.id !== '3dep') throw err;
-      note = '3DEP failed (' + err.message + '); used AWS Terrain Tiles instead.';
+      if (err.name === 'AbortError' || pref !== 'auto' || plan.id === 'terrarium') throw err;
+      note = (plan.id === 'canada' ? 'The Canadian elevation service' : '3DEP') + ' failed (' + err.message + '); used AWS Terrain Tiles instead.';
       const alt = Geo.planSource(bounds, 'terrarium', spec);
       if (alt.tooLarge || Geo.overCap(alt.grid)) throw err;
       result = await fetchTerrarium(bounds, alt, opts);
     }
-    const s = stats(result.data);
+    let s = stats(result.data);
+    // The Canadian mosaic only covers where lidar (or ArcticDEM) exists, so an Auto fetch that comes back with holes goes
+    // to the global source rather than hand over a map full of no-data. Picking Canada by hand keeps whatever it has.
+    if (plan.id === 'canada' && pref === 'auto' && s.nodata > CANADA_MAX_NODATA * result.data.length) {
+      const alt = Geo.planSource(bounds, 'terrarium', spec);
+      if (!alt.tooLarge && !Geo.overCap(alt.grid)) {
+        note = 'NRCan\'s high-resolution data covers only ' + Math.round(100 * (1 - s.nodata / result.data.length)) + '% of this region; used AWS Terrain Tiles instead. Choose the NRCan source under Advanced to keep its partial data.';
+        result = await fetchTerrarium(bounds, alt, opts);
+        s = stats(result.data);
+      }
+    }
     if (s.nodata === result.data.length) throw new Error('No elevation data returned for this region.');
     return Object.assign(result, s, { note });
   }
 
-  const api = { fetchElevation, fetchTerrarium, fetch3dep, depChunks, depUrl, parseDepTiff, parseDepRaster, resampleToExtent, terrariumMetres, stats };
+  const api = { fetchElevation, fetchTerrarium, fetch3dep, fetchCanada, canadaUrl, depChunks, depUrl, parseDepTiff, parseDepRaster, resampleToExtent, terrariumMetres, stats };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.MapNCSources = api;
 })(typeof self !== 'undefined' ? self : this);

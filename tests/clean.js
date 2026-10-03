@@ -79,6 +79,16 @@ check('cleaned path hugs the true path', rms(cl) < 3, 'rms ' + rms(cl).toFixed(2
   check('spline adds points on bends', sp.length > ctrl.length);
   const line = T.makeTrack('l', [[0, 1, 2, 3].map((i) => ({ lat: 40 + i * 0.0001, lon: -120 }))]);
   check('spline of a straight line adds no points', T.splineTrack(line, 0.5).segments[0].length === 4);
+  // smoothing steps: sized from point spacing, finite, ascending, capped by track length
+  const walk = (gapM, n) => T.makeTrack('w', [Array.from({ length: n }, (_, i) => ({ lat: 40 + i * gapM / 110574, lon: -120 + 3 * Math.sin(i / 5) / 111320 }))]);
+  const st5 = T.smoothingSteps(walk(5, 400)), st1 = T.smoothingSteps(walk(1, 400));
+  check('smoothing steps: finite and ascending', st5.length >= 4 && st5.every((v, i) => i === 0 || v > st5[i - 1]), JSON.stringify(st5));
+  check('smoothing steps scale with point spacing', st5[0] > st1[0] && st5[st5.length - 1] > st1[st1.length - 1], JSON.stringify([st1, st5]));
+  check('smoothing steps capped at a tenth of the length', T.smoothingSteps(walk(5, 12)).every((v) => v <= 55), JSON.stringify(T.smoothingSteps(walk(5, 12))));
+  check('too-short track has no steps', T.smoothingSteps(walk(5, 3)).length === 0);
+  const wob = walk(5, 400), rough = (t) => t.segments[0].reduce((n, q, i, a) => n + (i ? Math.abs(q.lon - a[i - 1].lon) : 0), 0);
+  check('a bigger smoothing step gives a smoother line', rough(T.splineTrack(wob, 0.25, st5[3])) < rough(T.splineTrack(wob, 0.25, 0)), '');
+  check('smoothing keeps the ends', (() => { const q = T.splineTrack(wob, 0.25, st5[2]).segments[0], o = wob.segments[0]; return Math.abs(q[0].lat - o[0].lat) < 1e-9 && Math.abs(q[q.length - 1].lat - o[o.length - 1].lat) < 1e-9; })(), '');
   check('spline with fewer than 3 points is unchanged', T.splineTrack(T.makeTrack('s', [[{ lat: 40, lon: -120 }, { lat: 40.001, lon: -120 }]]), 0.5).segments[0].length === 2);
 }
 

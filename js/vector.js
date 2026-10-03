@@ -4,11 +4,13 @@
  * CAM packages put the job origin bottom-left and draw Y up; images and SVG go Y down). Units are millimetres of the
  * finished carve when `mmPerPx` is given (carve size entered), otherwise heightmap pixels.
  *
- * Inputs: track (MapNCTrack), bounds, W/H (heightmap grid), opts { mmPerPx, lineWidth, border, marks, title }.
+ * Inputs: track (MapNCTrack), bounds, W/H (heightmap grid), opts { mmPerPx, lineWidth, marks, title }.
  * `lineWidth` is in the output units and only affects how the SVG strokes look: CAM software takes the centre line.
  * `track` may be null. opts.layers adds more line layers: [{ name, color, aci, width, lines }], where `lines` are polylines
  * in heightmap pixels (scaled here like the route), `name` becomes the SVG group id and the DXF layer (upper-cased),
  * `aci` is the DXF colour number and `width` multiplies the SVG stroke. opts.credit is a data credit line, written into the SVG <desc> and as a DXF comment.
+ * opts.window { x0, y0, w, h } (heightmap pixels) writes just that part, as a tile: the frame is w x h pixels, lines are cut at its
+ * edges and moved so the window's top-left corner is the origin, and the corner marks sit on the tile's own corners.
  */
 (function (root) {
   'use strict';
@@ -17,31 +19,37 @@
   const num = (v) => (Math.round(v * 1000) / 1000).toString();     // 3 decimals, no trailing zeros
   const esc = (t) => String(t).replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
-  /** Polylines [[{x, y}, ...], ...] in output units, y down from the top-left corner. */
-  function polylines(track, bounds, W, H, mmPerPx) {
-    const k = mmPerPx > 0 ? mmPerPx : 1;
-    if (!track) return [];
-    return Track.toPixels(track, bounds, W, H).map((seg) => seg.map((p) => ({ x: p.x * k, y: p.y * k })));
+  /** Lines cut to a window and moved to its corner (no window: unchanged). */
+  function windowed(lines, win) {
+    if (!win) return lines;
+    const Tiles = root.MapNCTiles || require('./tiles.js');
+    return [].concat(...lines.map((l) => Tiles.clipPolyline(l, win.x0, win.y0, win.w, win.h)));
   }
 
-  const scaleLines = (lines, mmPerPx) => { const k = mmPerPx > 0 ? mmPerPx : 1; return lines.map((l) => l.map((p) => ({ x: p.x * k, y: p.y * k }))); };
+  /** Polylines [[{x, y}, ...], ...] in output units, y down from the top-left corner (of the window, when one is given). */
+  function polylines(track, bounds, W, H, mmPerPx, win) {
+    const k = mmPerPx > 0 ? mmPerPx : 1;
+    if (!track) return [];
+    return windowed(Track.toPixels(track, bounds, W, H), win).map((seg) => seg.map((p) => ({ x: p.x * k, y: p.y * k })));
+  }
+
+  const scaleLines = (lines, mmPerPx, win) => { const k = mmPerPx > 0 ? mmPerPx : 1; return windowed(lines, win).map((l) => l.map((p) => ({ x: p.x * k, y: p.y * k }))); };
   const layerId = (name) => String(name).toUpperCase().replace(/[^A-Z0-9_]/g, '_');
 
-  /** Corner brackets (L shapes) inside the extent, touching the exact corners, so the group's bounding box is the
-   *  heightmap's extent. Returned as polylines in output units, y down from the top-left. */
+  /** Two corner brackets (L shapes) on opposite corners (top-left and bottom-right), inside the extent and touching the
+   *  exact corners, so the pair's bounding box is the heightmap's extent. Returned as polylines in output units, y down
+   *  from the top-left. */
   function cornerMarks(w, h) {
     const L = Math.max(w, h) * 0.04;
     return [
       [{ x: 0, y: L }, { x: 0, y: 0 }, { x: L, y: 0 }],
-      [{ x: w - L, y: 0 }, { x: w, y: 0 }, { x: w, y: L }],
       [{ x: w, y: h - L }, { x: w, y: h }, { x: w - L, y: h }],
-      [{ x: L, y: h }, { x: 0, y: h }, { x: 0, y: h - L }],
     ];
   }
 
   function toSvg(track, bounds, W, H, opts) {
-    const o = opts || {}, k = o.mmPerPx > 0 ? o.mmPerPx : 1, unit = o.mmPerPx > 0 ? 'mm' : '';
-    const w = W * k, h = H * k;
+    const o = opts || {}, k = o.mmPerPx > 0 ? o.mmPerPx : 1, unit = o.mmPerPx > 0 ? 'mm' : '', win = o.window || null;
+    const w = (win ? win.w : W) * k, h = (win ? win.h : H) * k;
     const sw = o.lineWidth > 0 ? o.lineWidth : Math.max(w, h) / 500;
     const lines = [
       '<?xml version="1.0" encoding="UTF-8"?>',
@@ -49,7 +57,6 @@
       `  <title>${esc(o.title || 'MapNC route')}</title>`,
       `  <desc>Origin top-left, Y down, units ${unit || 'px'}. Same frame as the MapNC heightmap PNG.${o.credit ? ' ' + esc(o.credit) : ''}</desc>`,
     ];
-    if (o.border) lines.push(`  <rect id="job-border" x="0" y="0" width="${num(w)}" height="${num(h)}" fill="none" stroke="#2563eb" stroke-width="${num(sw / 4)}"/>`);
     if (o.marks) {
       lines.push(`  <g id="corner-marks" fill="none" stroke="#2563eb" stroke-width="${num(sw / 2)}" stroke-linejoin="miter" stroke-linecap="butt">`);
       for (const seg of cornerMarks(w, h)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
@@ -57,12 +64,12 @@
     }
     for (const L of o.layers || []) {
       lines.push(`  <g id="${esc(String(L.name).toLowerCase())}" fill="none" stroke="${esc(L.color || '#555555')}" stroke-width="${num(sw * (L.width || 1))}" stroke-linejoin="round" stroke-linecap="round">`);
-      for (const seg of scaleLines(L.lines, o.mmPerPx)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
+      for (const seg of scaleLines(L.lines, o.mmPerPx, win)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
       lines.push('  </g>');
     }
     if (track) {
       lines.push(`  <g id="route" fill="none" stroke="#e11d48" stroke-width="${num(sw)}" stroke-linejoin="round" stroke-linecap="round">`);
-      for (const seg of polylines(track, bounds, W, H, o.mmPerPx)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
+      for (const seg of polylines(track, bounds, W, H, o.mmPerPx, win)) lines.push(`    <polyline points="${seg.map((p) => num(p.x) + ',' + num(p.y)).join(' ')}"/>`);
       lines.push('  </g>');
     }
     lines.push('</svg>', '');
@@ -71,11 +78,11 @@
 
   /**
    * ASCII DXF, AutoCAD R12 (AC1009): the most widely read dialect. Layers: ROUTE (open polylines) and, optionally,
-   * any opts.layers, JOB_BORDER (a closed rectangle of the heightmap's extent) and CORNER_MARKS (four L brackets at its corners). Y is flipped so the origin is bottom-left.
+   * any opts.layers and CORNER_MARKS (two L brackets at opposite corners of the heightmap's extent). Y is flipped so the origin is bottom-left.
    */
   function toDxf(track, bounds, W, H, opts) {
-    const o = opts || {}, k = o.mmPerPx > 0 ? o.mmPerPx : 1;
-    const w = W * k, h = H * k;
+    const o = opts || {}, k = o.mmPerPx > 0 ? o.mmPerPx : 1, win = o.window || null;
+    const w = (win ? win.w : W) * k, h = (win ? win.h : H) * k;
     const out = [];
     const g = (code, value) => { out.push(String(code), String(value)); };
     if (o.credit) g(999, o.credit);
@@ -83,10 +90,9 @@
     g(0, 'SECTION'); g(2, 'TABLES');
     g(0, 'TABLE'); g(2, 'LTYPE'); g(70, 1); g(0, 'LTYPE'); g(2, 'CONTINUOUS'); g(70, 0); g(3, 'Solid line'); g(72, 65); g(73, 0); g(40, 0.0); g(0, 'ENDTAB');
     const extra = o.layers || [];
-    g(0, 'TABLE'); g(2, 'LAYER'); g(70, (track ? 1 : 0) + extra.length + (o.border ? 1 : 0) + (o.marks ? 1 : 0));
+    g(0, 'TABLE'); g(2, 'LAYER'); g(70, (track ? 1 : 0) + extra.length + (o.marks ? 1 : 0));
     if (track) { g(0, 'LAYER'); g(2, 'ROUTE'); g(70, 0); g(62, 1); g(6, 'CONTINUOUS'); }
     for (const L of extra) { g(0, 'LAYER'); g(2, layerId(L.name)); g(70, 0); g(62, L.aci || 7); g(6, 'CONTINUOUS'); }
-    if (o.border) { g(0, 'LAYER'); g(2, 'JOB_BORDER'); g(70, 0); g(62, 5); g(6, 'CONTINUOUS'); }
     if (o.marks) { g(0, 'LAYER'); g(2, 'CORNER_MARKS'); g(70, 0); g(62, 5); g(6, 'CONTINUOUS'); }
     g(0, 'ENDTAB'); g(0, 'ENDSEC');
     g(0, 'SECTION'); g(2, 'ENTITIES');
@@ -95,10 +101,9 @@
       for (const p of pts) { g(0, 'VERTEX'); g(8, layer); g(10, num(p.x)); g(20, num(h - p.y)); g(30, 0); }
       g(0, 'SEQEND'); g(8, layer);
     };
-    if (o.border) poly('JOB_BORDER', [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }], true);
     if (o.marks) for (const seg of cornerMarks(w, h)) poly('CORNER_MARKS', seg, false);
-    for (const L of extra) for (const seg of scaleLines(L.lines, o.mmPerPx)) poly(layerId(L.name), seg, false);
-    for (const seg of polylines(track, bounds, W, H, o.mmPerPx)) poly('ROUTE', seg, false);
+    for (const L of extra) for (const seg of scaleLines(L.lines, o.mmPerPx, win)) poly(layerId(L.name), seg, false);
+    for (const seg of polylines(track, bounds, W, H, o.mmPerPx, win)) poly('ROUTE', seg, false);
     g(0, 'ENDSEC'); g(0, 'EOF');
     return out.join('\n') + '\n';
   }
