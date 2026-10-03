@@ -73,6 +73,12 @@ http.createServer((q, r) => { const p = path.join(require('./lib.js').ROOT, q.ur
   const stl = await (async () => { const [d] = await Promise.all([pg.waitForEvent('download', { timeout: 60000 }), pg.click('#export-stl-btn')]); const out = S + '/ct_m.stl'; await d.saveAs(out); return { name: d.suggestedFilename(), buf: fs.readFileSync(out) }; })();
   const nTri = stl.buf.readUInt32LE(80);
   check('STL file is binary with a consistent size', stl.buf.length === 84 + 50 * nTri && nTri > 1000 && /\.stl$/.test(stl.name), stl.name + ' ' + nTri);
+  await pg.selectOption('#stl-style', 'facets'); await pg.fill('#stl-facets', '800');
+  check('faceted style swaps the detail field for facets', await pg.locator('#stl-facets').isVisible() && !(await pg.locator('#stl-detail').isVisible()));
+  const fac = await (async () => { const [d] = await Promise.all([pg.waitForEvent('download', { timeout: 60000 }), pg.click('#export-stl-btn')]); const out = S + '/ct_f.stl'; await d.saveAs(out); return { name: d.suggestedFilename(), buf: fs.readFileSync(out) }; })();
+  const fTri = fac.buf.readUInt32LE(80);
+  check('faceted STL is binary and within the facet budget (this test terrain is a plane, so it needs few)', fac.buf.length === 84 + 50 * fTri && fTri >= 12 && fTri < 1100 && /_faceted\.stl$/.test(fac.name), fac.name + ' ' + fTri);
+  check('status reports the fit error', /worst fit error/.test(await txt('export-status')), await txt('export-status'));
   // Layered map
   await pg.click('#tab-layers');
   check('layers export enabled with elevation and a carve size', !(await pg.locator('#layers-svg-btn').isDisabled()), await txt('layers-info'));

@@ -232,8 +232,17 @@
               <input id="stl-base" type="number" min="0" step="any" value="3">
             </label>
           </div>
-          <label class="field">Mesh detail (points on the long side)
+          <label class="field">Style
+            <select id="stl-style">
+              <option value="grid" selected>Smooth grid (follows the heightmap)</option>
+              <option value="facets">Faceted (fewer, larger triangles)</option>
+            </select>
+          </label>
+          <label class="field" id="stl-detail-wrap">Mesh detail (points on the long side)
             <input id="stl-detail" type="number" min="16" max="2000" step="1" value="500">
+          </label>
+          <label class="field" id="stl-facets-wrap" hidden>Facets (triangles on the top surface)
+            <input id="stl-facets" type="number" min="50" max="200000" step="1" value="3000">
           </label>
           <p id="stl-info" class="hint"></p>
           <div class="row"><button id="export-stl-btn" type="button" disabled>Export STL</button></div>
@@ -433,6 +442,7 @@
   <script src="js/heightmap.js"></script>
   <script src="js/track.js"></script>
   <script src="js/contours.js"></script>
+  <script src="js/vendor/delaunator.min.js"></script>
   <script src="js/stl.js"></script>
   <script src="js/osm.js"></script>
   <script src="js/terrain3d.js"></script>

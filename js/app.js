@@ -1427,32 +1427,50 @@
     if (!elevation) return { why: 'Waiting for the elevation data.' };
     const mm = carveLongMm();
     if (!mm) return { why: 'Enter a carve size under Output size: the mesh is built at that size.' };
-    const relief = parseFloat($('stl-relief').value), base = parseFloat($('stl-base').value), detail = Math.round(parseFloat($('stl-detail').value));
+    const relief = parseFloat($('stl-relief').value), base = parseFloat($('stl-base').value), faceted = $('stl-style').value === 'facets';
     if (!(relief > 0)) return { why: 'Enter a relief height.' };
     if (!(base >= 0)) return { why: 'Enter a base thickness (0 or more).' };
+    const W = elevation.width, H = elevation.height, k = mm / Math.max(W, H), dims = { relief, base, widthMm: W * k, heightMm: H * k, faceted };
+    if (faceted) {
+      const facets = Math.round(parseFloat($('stl-facets').value));
+      if (!(facets >= 50 && facets <= 200000)) return { why: 'Use between 50 and 200,000 facets.' };
+      return Object.assign(dims, { facets, tris: facets, bytes: 84 + 50 * facets });
+    }
+    const detail = Math.round(parseFloat($('stl-detail').value));
     if (!(detail >= 16)) return { why: 'Use at least 16 points on the long side.' };
-    const W = elevation.width, H = elevation.height, long = Math.min(Math.max(W, H), Math.min(detail, 2000));
-    const w = Math.max(2, Math.round(W >= H ? long : long * W / H)), h = Math.max(2, Math.round(H > W ? long : long * H / W));
-    const k = mm / Math.max(W, H), tris = STL.triangleCount(w, h);
-    return { relief, base, w, h, tris, bytes: 84 + 50 * tris, widthMm: W * k, heightMm: H * k };
+    const long = Math.min(Math.max(W, H), Math.min(detail, 2000));
+    const w = Math.max(2, Math.round(W >= H ? long : long * W / H)), h = Math.max(2, Math.round(H > W ? long : long * H / W)), tris = STL.triangleCount(w, h);
+    return Object.assign(dims, { w, h, tris, bytes: 84 + 50 * tris });
   }
   function updateStlUi() {
     const pl = stlPlan();
+    $('stl-detail-wrap').hidden = $('stl-style').value === 'facets';
+    $('stl-facets-wrap').hidden = $('stl-style').value !== 'facets';
     $('export-stl-btn').disabled = !!pl.why;
-    $('stl-info').textContent = pl.why || pl.w + ' × ' + pl.h + ' points, ' + (pl.tris / 1e6).toFixed(2) + ' million triangles, about ' + (pl.bytes / 1048576).toFixed(0) + ' MB. ' +
-      pl.widthMm.toFixed(1) + ' × ' + pl.heightMm.toFixed(1) + ' mm, ' + (pl.base + pl.relief).toFixed(1) + ' mm tall.';
+    const size = pl.why ? '' : pl.widthMm.toFixed(1) + ' × ' + pl.heightMm.toFixed(1) + ' mm, ' + (pl.base + pl.relief).toFixed(1) + ' mm tall.';
+    $('stl-info').textContent = pl.why || (pl.faceted
+      ? 'Up to about ' + pl.facets.toLocaleString() + ' triangles on top (fewer if the ground is simple), ' + (pl.bytes / 1048576).toFixed(1) + ' MB. Points go where the terrain needs them: summits, ridges, valley floors; flat ground gets a few big facets. ' + size
+      : pl.w + ' × ' + pl.h + ' points, ' + (pl.tris / 1e6).toFixed(2) + ' million triangles, about ' + (pl.bytes / 1048576).toFixed(0) + ' MB. ' + size);
   }
-  ['stl-relief', 'stl-base', 'stl-detail', 'carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', updateStlUi));
+  ['stl-relief', 'stl-base', 'stl-detail', 'stl-facets', 'carve-size', 'carve-unit'].forEach((id) => $(id).addEventListener('input', updateStlUi));
+  $('stl-style').addEventListener('change', updateStlUi);
   $('export-stl-btn').addEventListener('click', () => {
     const pl = stlPlan();
     if (pl.why) { $('export-status').textContent = pl.why; return; }
     const g = HM.toGrey(elevation.data, Object.assign(currentParams(), { bits: 16 }));
     const t = new Float32Array(g.data.length);
     for (let i = 0; i < t.length; i++) t[i] = elevation.data[i] !== elevation.data[i] ? 0 : g.data[i] / g.maxVal;
-    const mesh = STL.resample(t, elevation.width, elevation.height, pl.w, pl.h);
-    const buf = STL.buildStl(mesh, pl.w, pl.h, { widthMm: pl.widthMm, heightMm: pl.heightMm, reliefMm: pl.relief, baseMm: pl.base });
-    const name = saveBlob(new Blob([buf], { type: 'model/stl' }), exportBaseName(exportGrid()) + '_' + pl.w + 'x' + pl.h + '.stl');
-    $('export-status').textContent = 'Saved ' + name + ' (' + (buf.byteLength / 1048576).toFixed(1) + ' MB, millimetres, Z up).';
+    const o = { widthMm: pl.widthMm, heightMm: pl.heightMm, reliefMm: pl.relief, baseMm: pl.base };
+    let buf, note = '', tag;
+    if (pl.faceted) {
+      const r = STL.buildFacetedStl(t, elevation.width, elevation.height, Object.assign(o, { target: pl.facets }));
+      buf = r.buf; tag = r.triangles + 'tris';
+      note = ', worst fit error about ' + r.maxErrMm.toFixed(2) + ' mm of height';
+    } else {
+      buf = STL.buildStl(STL.resample(t, elevation.width, elevation.height, pl.w, pl.h), pl.w, pl.h, o); tag = pl.w + 'x' + pl.h;
+    }
+    const name = saveBlob(new Blob([buf], { type: 'model/stl' }), exportBaseName(exportGrid()) + '_' + tag + (pl.faceted ? '_faceted' : '') + '.stl');
+    $('export-status').textContent = 'Saved ' + name + ' (' + (buf.byteLength / 1048576).toFixed(1) + ' MB, millimetres, Z up' + note + ').';
   });
 
   // ---- layered map (a stack of constant-height outlines) -----------------------------------
